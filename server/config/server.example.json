@@ -1,0 +1,15 @@
+{
+  "bind_host": "127.0.0.1",
+  "advertise_host": "127.0.0.1",
+  "port": 8787,
+  "udp_port": 8788,
+  "vconline_matchmaking": true,
+  "custom_content": true,
+  "content_quota_mib": 256,
+  "state_file": "../data/local-state.sqlite3",
+  "max_connections": 64,
+  "room_idle_seconds": 3600,
+  "http_rate": 30,
+  "udp_rate": 2000,
+  "log": "../logs/server-go.jsonl"
+}

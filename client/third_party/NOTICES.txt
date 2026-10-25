@@ -1,0 +1,5 @@
+Third-party notices
+
+MinHook 1.3.4, Tsuda Kageyu and contributors: BSD 2-Clause; see MINHOOK-LICENSE.txt (or third_party/minhook/LICENSE.txt in source). Includes HDE64 with its own notice in src/hde files. All vendored notices are retained.
+
+LLVM-MinGW static runtime: see LLVM-MINGW-LICENSE.txt (source copy in client/third_party). No Frida/Gadget component is included in this native client.

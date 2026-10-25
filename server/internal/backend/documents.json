@@ -1,0 +1,14 @@
+{
+  "Eula": [
+    2,
+    "Laboratorio locale sperimentale WWE 2K22. Questo avviso descrive soltanto il server locale e non contiene i termini ufficiali di 2K. Le stanze private sono sperimentali; il ciclo completo e le connessioni tra PC diversi richiedono verifica."
+  ],
+  "Privacy": [
+    2,
+    "Avviso privacy del laboratorio locale sperimentale WWE 2K22. Il server puo salvare profili, preferenze, accettazioni di questi avvisi e contatori locali su disco. Le sessioni e le stanze restano in memoria; ticket e chiavi non sono salvati. I log registrano metadati tecnici, senza corpi delle richieste, ticket o chiavi di sessione. Questo testo descrive soltanto il laboratorio e non contiene la privacy policy ufficiale di 2K."
+  ],
+  "TOS": [
+    2,
+    "Condizioni del laboratorio locale sperimentale WWE 2K22. Il servizio offre risposte sperimentali per lo studio del protocollo. Profili e contatori appartengono a questo server; non sono dati ufficiali 2K. Un incontro privato sincronizzato e stato verificato su un solo PC; il ritorno alla lobby resta sperimentale. Questo avviso non contiene le condizioni ufficiali di 2K."
+  ]
+}

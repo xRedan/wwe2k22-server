@@ -1,0 +1,16 @@
+Go server: third-party notices
+
+The executable includes the Go runtime (BSD-3-Clause, GO-LICENSE.txt).
+The following pinned modules are imported by the server. Their original notices are preserved beside this file.
+
+- github.com/dustin/go-humanize v1.1.0 (LICENSE)
+- github.com/mattn/go-isatty v0.0.24 (LICENSE)
+- github.com/ncruces/go-strftime v1.1.0 (LICENSE)
+- github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec (LICENSE)
+- golang.org/x/sys v0.49.0 (LICENSE, PATENTS)
+- golang.org/x/text v0.43.0 (LICENSE, PATENTS)
+- modernc.org/libc v1.79.0 (AUTHORS, LICENSE, LICENSE-3RD-PARTY.txt)
+- modernc.org/mathutil v1.7.1 (AUTHORS, LICENSE)
+- modernc.org/memory v1.12.1 (AUTHORS, LICENSE, LICENSE-GO, LICENSE-LOGO, LICENSE-MMAP-GO)
+- modernc.org/sqlite v1.61.0 (AUTHORS, LICENSE, LICENSE-3RD-PARTY.txt, LICENSE-SQLITE, LICENSE-SQLITE_VEC)
+- zombiezen.com/go/sqlite v1.4.2 (LICENSE)

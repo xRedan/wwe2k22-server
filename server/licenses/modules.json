@@ -1,0 +1,92 @@
+[
+  {
+    "module": "github.com/dustin/go-humanize",
+    "version": "v1.1.0",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "github.com/mattn/go-isatty",
+    "version": "v0.0.24",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "github.com/ncruces/go-strftime",
+    "version": "v1.1.0",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "github.com/remyoudompheng/bigfft",
+    "version": "v0.0.0-20230129092748-24d4a6f8daec",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "golang.org/x/sys",
+    "version": "v0.49.0",
+    "license_files": [
+      "LICENSE",
+      "PATENTS"
+    ]
+  },
+  {
+    "module": "golang.org/x/text",
+    "version": "v0.43.0",
+    "license_files": [
+      "LICENSE",
+      "PATENTS"
+    ]
+  },
+  {
+    "module": "modernc.org/libc",
+    "version": "v1.79.0",
+    "license_files": [
+      "AUTHORS",
+      "LICENSE",
+      "LICENSE-3RD-PARTY.txt"
+    ]
+  },
+  {
+    "module": "modernc.org/mathutil",
+    "version": "v1.7.1",
+    "license_files": [
+      "AUTHORS",
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "modernc.org/memory",
+    "version": "v1.12.1",
+    "license_files": [
+      "AUTHORS",
+      "LICENSE",
+      "LICENSE-GO",
+      "LICENSE-LOGO",
+      "LICENSE-MMAP-GO"
+    ]
+  },
+  {
+    "module": "modernc.org/sqlite",
+    "version": "v1.61.0",
+    "license_files": [
+      "AUTHORS",
+      "LICENSE",
+      "LICENSE-3RD-PARTY.txt",
+      "LICENSE-SQLITE",
+      "LICENSE-SQLITE_VEC"
+    ]
+  },
+  {
+    "module": "zombiezen.com/go/sqlite",
+    "version": "v1.4.2",
+    "license_files": [
+      "LICENSE"
+    ]
+  }
+]

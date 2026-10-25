@@ -1,0 +1,26 @@
+[Unit]
+Description=WWE 2K22 private server (Go)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wwe2k22
+Group=wwe2k22
+WorkingDirectory=/var/lib/wwe2k22
+ExecStart=/opt/wwe2k22/wwe2k22-server --config /etc/wwe2k22/server-go.json --state-file /var/lib/wwe2k22/local-state.sqlite3 --log -
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=35
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StateDirectory=wwe2k22
+StateDirectoryMode=0700
+UMask=0077
+MemoryMax=512M
+Environment=GOMEMLIMIT=384MiB
+
+[Install]
+WantedBy=multi-user.target

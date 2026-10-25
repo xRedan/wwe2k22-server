@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.dll binary
+*.exe binary
+*.zip binary
+client/third_party/minhook/** -text -whitespace
+client/third_party/LLVM-MINGW-LICENSE.txt -text -whitespace
+server/licenses/** -text -whitespace
