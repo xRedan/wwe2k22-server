@@ -84,6 +84,9 @@ func (m *multipartInput) part(boundary []byte, target *spool, limit int64) (bool
 				return false, e
 			}
 			m.pending = m.pending[count:]
+			// Examine buffered bytes before reading again. False boundary
+			// prefixes can consume only a few bytes while much more is pending.
+			continue
 		}
 		if e := m.read(); e != nil {
 			return false, fail(400, "Missing native multipart terminator")

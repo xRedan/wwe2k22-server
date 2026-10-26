@@ -27,7 +27,8 @@ func (s *spool) Write(p []byte) (int, error) {
 			os.Remove(f.Name())
 			return 0, e
 		}
-		s.buffer.Reset()
+		// The file now owns these bytes; Reset would retain the 256 KiB backing array.
+		s.buffer = bytes.Buffer{}
 		s.file = f
 	}
 	var n int
