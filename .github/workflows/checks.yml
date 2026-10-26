@@ -4,10 +4,7 @@ permissions:
   contents: read
 jobs:
   server:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: server
@@ -30,7 +27,8 @@ jobs:
       - run: python -B -m unittest discover -s client/tests -p test_build.py -v
       - run: g++ -std=c++17 -O2 -Wall -Wextra -Werror client/tests/descriptor_host.cpp -o "$RUNNER_TEMP/descriptor-host"
       - run: '"$RUNNER_TEMP/descriptor-host"'
-  native-client:
+  windows-native:
+    name: Windows server and native client
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -38,7 +36,11 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - name: Verify compiler archive and test native client
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: server/go.sum
+      - name: Verify compiler and test Windows server and native client
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -51,6 +53,15 @@ jobs:
           $compiler = Join-Path (Join-Path $env:RUNNER_TEMP $toolchain.directory) 'bin/x86_64-w64-mingw32-clang++.exe'
           $openssl = 'C:/Program Files/Git/usr/bin/openssl.exe'
           if (!(Test-Path -LiteralPath $openssl)) { throw 'Owned TLS tests require OpenSSL' }
+          $env:CGO_ENABLED = '1'
+          $env:CC = $compiler.Replace('clang++.exe', 'clang.exe')
+          if (!(Test-Path -LiteralPath $env:CC)) { throw 'Race tests require the verified C compiler' }
+          go -C server mod verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go -C server vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go -C server test -race -count=1 -timeout=120s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/tests/run_images.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/tests/run_owned.py --compiler $compiler --openssl $openssl

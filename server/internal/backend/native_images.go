@@ -49,7 +49,69 @@ func ddsDimensions(data []byte) (uint32, uint32, error) {
 	if width < 1 || height < 1 || width > 16384 || height > 16384 {
 		return 0, 0, errors.New("invalid DDS dimensions")
 	}
+	if e := ddsLayoutMinimum(data, width, height); e != nil {
+		return 0, 0, e
+	}
 	return width, height, nil
+}
+
+// Validate minimum 2D surface storage only for recognized legacy layouts.
+// Unknown formats remain opaque; this is not a complete DDS format parser.
+// Layout formulas: https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-file-layout-for-textures
+func ddsLayoutMinimum(data []byte, width, height uint32) error {
+	flags := binary.LittleEndian.Uint32(data[80:])
+	var blockBytes, pixelBytes uint64
+	// DDS_PIXELFORMAT declares FourCC valid only with DDPF_FOURCC. Other
+	// layouts may leave stale bytes there, so RGB/opaque readers ignore them.
+	if flags&0x4 != 0 {
+		switch string(data[84:88]) {
+		case "DX10":
+			if len(data) < 148 {
+				return errors.New("truncated DDS DX10 header")
+			}
+			return nil
+		case "DXT1":
+			blockBytes = 8
+		case "DXT2", "DXT3", "DXT4", "DXT5":
+			blockBytes = 16
+		default:
+			return nil
+		}
+	} else if flags&0x40 != 0 {
+		switch bits := binary.LittleEndian.Uint32(data[88:]); bits {
+		case 8, 16, 24, 32:
+			pixelBytes = uint64(bits / 8)
+		default:
+			return nil
+		}
+	} else {
+		return nil
+	}
+	levels := binary.LittleEndian.Uint32(data[28:])
+	if levels == 0 {
+		levels = 1
+	}
+	// DDS dimensions are 32-bit, so no valid mip chain needs more than 32
+	// levels. Do not rely on DDSD_MIPMAPCOUNT: some writers omit the flag.
+	if levels > 32 {
+		return errors.New("invalid DDS mip count")
+	}
+	w, h := uint64(width), uint64(height)
+	remaining := uint64(len(data) - 128)
+	for level := uint32(0); level < levels; level++ {
+		// ddsDimensions caps each dimension at 16384 before this call. These
+		// products fit uint64; subtracting each level avoids sum overflow.
+		size := w * h * pixelBytes
+		if blockBytes != 0 {
+			size = ((w + 3) / 4) * ((h + 3) / 4) * blockBytes
+		}
+		if size > remaining {
+			return errors.New("truncated DDS pixels")
+		}
+		remaining -= size
+		w, h = max(w/2, 1), max(h/2, 1)
+	}
+	return nil
 }
 func packImage(data []byte, kind int, nonce, stamp uint32) ([]byte, error) {
 	width, height, e := ddsDimensions(data)
