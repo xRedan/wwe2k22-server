@@ -64,6 +64,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/tests/run_images.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -X utf8 -B client/tests/run_images.py --compiler $compiler --address-sanitizer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/tests/run_owned.py --compiler $compiler --openssl $openssl
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/build.py --compiler $compiler

@@ -93,6 +93,16 @@ static bool barrier(HINTERNET session, INTERNET_PORT port,
 int main(int argc, char **argv) {
   if (argc < 3)
     return 10;
+#ifdef WWE_OWNED_ASAN
+  // ASan initializes in the EXE CRT before the instrumented proxy is loaded.
+  auto asan_proxy = LoadLibraryW(L".\\dinput8.dll");
+  if (!asan_proxy)
+    return 71;
+  auto DirectInput8Create = (decltype(&::DirectInput8Create))
+      GetProcAddress(asan_proxy, "DirectInput8Create");
+  if (!DirectInput8Create)
+    return 72;
+#endif
   void *input = nullptr;
   auto hr = DirectInput8Create(GetModuleHandleW(nullptr), 0x800,
                                IID_IDirectInput8W, &input, nullptr);

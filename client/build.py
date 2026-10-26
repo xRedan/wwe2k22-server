@@ -20,9 +20,15 @@ def sha(path):
     with Path(path).open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
-def build(output, compiler, target_sha=TARGET, test_only=False):
+def build(output, compiler, target_sha=TARGET, test_only=False, *, sanitizer=None):
     output = Path(output).resolve()
     compiler = Path(compiler).resolve()
+    if sanitizer not in (None, 'address'):
+        raise ValueError('Unknown sanitizer')
+    if sanitizer is not None and not test_only:
+        raise ValueError('Sanitizers are restricted to owned-test builds')
+    if sanitizer == 'address' and not compiler.with_name('libclang_rt.asan_dynamic-x86_64.dll').is_file():
+        raise FileNotFoundError('The selected toolchain has no x64 AddressSanitizer runtime DLL')
     if not any((output.is_relative_to(ROOT / name) for name in ('build', 'dist'))):
         raise ValueError('Output must be under repository build/ or dist/')
     if not re.fullmatch('[0-9a-f]{64}', target_sha):
@@ -43,6 +49,8 @@ def build(output, compiler, target_sha=TARGET, test_only=False):
     flags = ['-O2', '-Wall', '-Wextra', '-Werror', '-fstack-protector-strong',
              '-D_WIN32_WINNT=0x0602', '-ffile-prefix-map=' + str(ROOT) + '=client',
              '-fmacro-prefix-map=' + str(ROOT) + '=client', '-I' + str(vendor / 'include')]
+    if sanitizer == 'address':
+        flags += ['-fsanitize=address', '-fno-omit-frame-pointer', '-gline-tables-only']
     build_root = (ROOT / 'build').resolve()
     if not build_root.is_relative_to(ROOT):
         raise ValueError('Build directory resolves outside repository')
@@ -57,7 +65,9 @@ def build(output, compiler, target_sha=TARGET, test_only=False):
             target = objects_dir / (source.stem + '.o')
             subprocess.run([str(c_compiler), *flags, '-c', str(source), '-o', str(target)], check=True)
             objects.append(str(target))
-        command = [str(compiler), '-std=c++17', *flags, '-shared', '-static', '-fstack-protector-strong', '-DWWE_TARGET_SHA256="' + target_sha + '"']
+        command = [str(compiler), '-std=c++17', *flags, '-shared',
+                   *(['-shared-libasan'] if sanitizer == 'address' else ['-static']),
+                   '-fstack-protector-strong', '-DWWE_TARGET_SHA256="' + target_sha + '"']
         if test_only:
             command += ['-DWWE_OWNED_TEST', '-Wno-unused-function', '-Wno-unused-variable']
         command += [str(SOURCE / name) for name in ('loader.cpp', 'config.cpp', 'runtime.cpp', 'integrity.cpp', 'logging.cpp', 'publication.cpp', 'image_sync.cpp', 'hooks.cpp', 'cleanup.cpp', 'http.cpp', 'game.cpp', 'lobby_search.cpp', 'diagnostics.cpp', 'entry.S', 'dinput8.def')]
@@ -79,6 +89,8 @@ def build(output, compiler, target_sha=TARGET, test_only=False):
                           for path in sorted(SOURCE.rglob('*'))
                           if path.is_file() and path.suffix in ('.cpp', '.hpp', '.S', '.c', '.h', '.def')},
     }
+    if sanitizer is not None:
+        manifest['sanitizer'] = sanitizer
     atomic_write(output / 'manifest.json', (json.dumps(manifest, indent=2) + '\n').encode('utf-8'))
     return manifest
 

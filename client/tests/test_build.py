@@ -81,5 +81,9 @@ class PackageTests(unittest.TestCase):
                 build.atomic_write(target, b'new')
         self.assertEqual(target.read_bytes(), b'old')
         self.assertEqual(list(self.output.glob('*.tmp')), [])
+    def test_sanitized_client_cannot_be_built_as_production(self):
+        with self.assertRaisesRegex(ValueError, 'owned-test'):
+            build.build(self.output, self.root / 'compiler.exe', sanitizer='address')
+
 if __name__ == '__main__':
     unittest.main()

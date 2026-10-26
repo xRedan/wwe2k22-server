@@ -2,6 +2,7 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -17,15 +18,31 @@ spec.loader.exec_module(build)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', required=True, type=Path)
+    parser.add_argument('--address-sanitizer', action='store_true',
+                        help='Run the owned image suite with the toolchain AddressSanitizer runtime')
     args = parser.parse_args()
-    out = ROOT / 'build/native-image-tests'
+    args.compiler = args.compiler.resolve()
+    child_env = None
+    if args.address_sanitizer:
+        runtime = args.compiler.with_name('libclang_rt.asan_dynamic-x86_64.dll')
+        if not runtime.is_file():
+            raise FileNotFoundError(runtime)
+        child_env = os.environ.copy()
+        child_env['PATH'] = str(args.compiler.parent) + os.pathsep + child_env.get('PATH', '')
+        child_env['ASAN_OPTIONS'] = 'detect_leaks=0:halt_on_error=1'
+    out = ROOT / 'build' / ('native-image-asan-tests' if args.address_sanitizer else 'native-image-tests')
     out.mkdir(parents=True, exist_ok=True)
     host = out / 'owned-image-host.exe'
-    subprocess.run([str(args.compiler), '-std=c++17', '-O2', '-static', '-Wall',
+    host_flags = (['-DWWE_OWNED_ASAN', '-fsanitize=address', '-shared-libasan',
+                   '-fno-omit-frame-pointer', '-gline-tables-only']
+                  if args.address_sanitizer else ['-static'])
+    host_libraries = [] if args.address_sanitizer else ['-ldinput8']
+    subprocess.run([str(args.compiler), '-std=c++17', '-O2', *host_flags, '-Wall',
                     '-Wextra', '-Werror', str(ROOT / 'tests/image_host.cpp'),
-                    '-ldinput8', '-ldxguid', '-lwinhttp',
-                    '-Wl,--no-insert-timestamp', '-o', str(host)], check=True)
-    build.build(out, args.compiler, build.sha(host), test_only=True)
+                    *host_libraries, '-ldxguid', '-lwinhttp', '-Wl,--no-insert-timestamp',
+                    '-o', str(host)], check=True, env=child_env)
+    build.build(out, args.compiler, build.sha(host), test_only=True,
+                sanitizer='address' if args.address_sanitizer else None)
     captures = []
     markers = []
     lock = threading.Lock()
@@ -124,7 +141,8 @@ def main():
             ini = baseline.replace('CustomContent=1', 'CustomContent=0') if mode == 'disabled' else baseline
             (out / 'wwe2k22-private.ini').write_text(ini, encoding='ascii')
             result = subprocess.run([str(host), mode, str(server.server_port)],
-                                    cwd=out, capture_output=True, timeout=25)
+                                    cwd=out, capture_output=True, timeout=25,
+                                    env=child_env)
             assert result.returncode == 0, (mode, result.returncode, result.stdout, result.stderr)
             with lock:
                 records = list(captures)
@@ -165,6 +183,9 @@ def main():
             report.append(entry)
         result = {'passed': len(report), 'game_started': False,
                   'steam_started': False, 'cases': report}
+        if args.address_sanitizer:
+            result['sanitizer'] = 'AddressSanitizer'
+            result['leak_sanitizer_enabled'] = False
         (out / 'report.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result))
     finally:

@@ -5,6 +5,11 @@ namespace {
 HANDLE diagnostic_file = INVALID_HANDLE_VALUE;
 uintptr_t image_base = 0, image_size = 0;
 volatile LONG diagnostic_budget = 16;
+// Sanitizer-internal probes can enter this handler. Instrumenting the fault
+// path would recursively fault before the original exception can be handled.
+#if defined(__clang__)
+__attribute__((no_sanitize("address", "undefined", "thread")))
+#endif
 char *number(char *out, uint64_t value) noexcept {
   char reverse[24];
   unsigned n = 0;
@@ -16,6 +21,9 @@ char *number(char *out, uint64_t value) noexcept {
     *out++ = reverse[--n];
   return out;
 }
+#if defined(__clang__)
+__attribute__((no_sanitize("address", "undefined", "thread")))
+#endif
 LONG CALLBACK observe_exception(EXCEPTION_POINTERS *exception) noexcept {
   if (!exception || !exception->ExceptionRecord || !exception->ContextRecord ||
       diagnostic_file == INVALID_HANDLE_VALUE)
