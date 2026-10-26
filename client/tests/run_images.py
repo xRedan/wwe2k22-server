@@ -132,7 +132,8 @@ def main():
                      'coalesce-budget', 'coalesce-typical', 'retry-cap',
                      'parallel', 'parallel-budget', 'burst', 'stop-race',
                      'coalesce-read-race', 'coalesce-write-race',
-                     'coalesce-failed-race', 'coalesce-restore-race'):
+                     'coalesce-failed-race', 'coalesce-restore-race',
+                     'capture-fuzz'):
             with lock:
                 captures.clear()
             arrived.clear()
@@ -180,6 +181,8 @@ def main():
                 timing = json.loads(line)
                 if 'duplicate_samples' in timing:
                     entry['timing'] = timing
+                if 'fuzz_cases' in timing:
+                    entry['fuzz'] = timing
             report.append(entry)
         result = {'passed': len(report), 'game_started': False,
                   'steam_started': False, 'cases': report}

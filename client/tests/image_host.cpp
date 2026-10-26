@@ -246,6 +246,129 @@ int main(int argc, char **argv) {
     VirtualFree(guard, 0, MEM_RELEASE);
     if (bytes_used())
       return 31;
+  } else if (mode == "capture-fuzz") {
+    // Every borrowed range belongs to this fixture. The last three pages of
+    // each region cover guard, inaccessible and decommitted memory states.
+    SYSTEM_INFO info{};
+    GetSystemInfo(&info);
+    const size_t page = info.dwPageSize;
+    auto data_region = (unsigned char *)VirtualAlloc(
+        nullptr, page * 4, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    auto record_region = (unsigned char *)VirtualAlloc(
+        nullptr, page * 4, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!data_region || !record_region)
+      return 73;
+    memcpy(data_region + 64, bytes.data(), bytes.size());
+    memcpy(data_region + page - bytes.size(), bytes.data(), bytes.size());
+    DWORD old = 0;
+    bool protected_pages =
+        VirtualProtect(data_region + page, page, PAGE_READWRITE | PAGE_GUARD, &old) &&
+        VirtualProtect(record_region + page, page, PAGE_READWRITE | PAGE_GUARD, &old) &&
+        VirtualProtect(data_region + page * 2, page, PAGE_NOACCESS, &old) &&
+        VirtualProtect(record_region + page * 2, page, PAGE_NOACCESS, &old) &&
+        VirtualFree(data_region + page * 3, page, MEM_DECOMMIT) &&
+        VirtualFree(record_region + page * 3, page, MEM_DECOMMIT);
+    if (!protected_pages)
+      return 74;
+    uint32_t random_state = 0x5eed2c22;
+    auto next = [&] {
+      random_state ^= random_state << 13;
+      random_state ^= random_state >> 17;
+      random_state ^= random_state << 5;
+      return random_state;
+    };
+    std::array<std::array<unsigned char, 16>, 8> identities{};
+    for (unsigned id = 1; id < identities.size(); ++id) {
+      for (auto &value : identities[id])
+        value = (unsigned char)next();
+      identities[id][0] = (unsigned char)id;
+    }
+    const uint32_t sizes[] = {0, 127, 128, 129, 132, 256, 4096,
+                              16 * 1024 * 1024, UINT32_MAX};
+    unsigned controls = 0, accepted = 0;
+    size_t peak = 0;
+    bool controls_ok = true, budget_ok = true;
+    for (unsigned iteration = 0; iteration < 20000; ++iteration) {
+      for (unsigned i = 0; i < 16; ++i)
+        record[i] = (unsigned char)next();
+      uint16_t kinds[] = {0, 31, 61, 9, UINT16_MAX, (uint16_t)next()};
+      uint16_t kind = kinds[next() % 6];
+      unsigned id = next() % identities.size();
+      memcpy(record.data() + 4, &kind, sizeof(kind));
+      memcpy(record.data() + 16, identities[id].data(), 16);
+      uintptr_t data_options[] = {
+          0, (uintptr_t)(data_region + 64), (uintptr_t)(data_region + 65),
+          (uintptr_t)(data_region + page - bytes.size()),
+          (uintptr_t)(data_region + page + 8),
+          (uintptr_t)(data_region + page * 2 + 8),
+          (uintptr_t)(data_region + page * 3 + 8), 1, UINTPTR_MAX - 63};
+      uintptr_t pointer = data_options[next() % 9];
+      uint32_t length = sizes[next() % 9];
+      // Huge copies are normally rejected by pointer/header validation. Four
+      // deliberate valid-header probes exercise allocation then guard failure.
+      if (length == 16 * 1024 * 1024)
+        pointer = data_options[4 + next() % 5];
+      bool large_probe = iteration % 5000 == 4999;
+      if (large_probe) {
+        kind = 0;
+        memcpy(record.data() + 4, &kind, sizeof(kind));
+        memcpy(record.data() + 16, identities[1].data(), 16);
+        pointer = (uintptr_t)(data_region + page - bytes.size());
+        length = 16 * 1024 * 1024;
+      }
+      bool control = iteration % 97 == 0;
+      if (control) {
+        kind = 0;
+        memcpy(record.data() + 4, &kind, sizeof(kind));
+        memcpy(record.data() + 16, identities[1].data(), 16);
+        pointer = (uintptr_t)(data_region + 64);
+        length = (uint32_t)bytes.size();
+      }
+      memcpy(record.data() + 0x40, &pointer, sizeof(pointer));
+      memcpy(record.data() + 0x54, &length, sizeof(length));
+      auto valid_record = record_region + 64;
+      auto edge_record = record_region + page - record.size();
+      auto expected = record_region + 256;
+      auto mismatch = record_region + 512;
+      memcpy(valid_record, record.data(), record.size());
+      memcpy(edge_record, record.data(), record.size());
+      memcpy(expected, record.data(), 32);
+      memcpy(mismatch, record.data(), 32);
+      mismatch[16] ^= 0x80;
+      void *record_options[] = {
+          valid_record, edge_record, nullptr, record_region + page - 16,
+          record_region + page + 8, record_region + page * 2 + 8,
+          record_region + page * 3 + 8, (void *)1, (void *)(UINTPTR_MAX - 15)};
+      const void *expected_options[] = {
+          expected, valid_record, mismatch, nullptr, record_region + page - 16,
+          record_region + page + 8, record_region + page * 2 + 8,
+          record_region + page * 3 + 8, (void *)(UINTPTR_MAX - 15)};
+      void *borrowed_record = control || large_probe ? valid_record : record_options[next() % 9];
+      const void *borrowed_expected = control || large_probe ? expected : expected_options[next() % 9];
+      int result = capture(borrowed_record, borrowed_expected);
+      accepted += result != 0;
+      if (control) {
+        ++controls;
+        controls_ok &= result != 0;
+      }
+      auto sample = bytes_used();
+      if (sample > peak)
+        peak = sample;
+      budget_ok &= sample <= 64 * 1024 * 1024;
+    }
+    MEMORY_BASIC_INFORMATION data_guard{}, record_guard{};
+    bool guards_ok =
+        VirtualQuery(data_region + page, &data_guard, sizeof(data_guard)) &&
+        VirtualQuery(record_region + page, &record_guard, sizeof(record_guard)) &&
+        (data_guard.Protect & PAGE_GUARD) && (record_guard.Protect & PAGE_GUARD);
+    bool stopped = stop() != 0;
+    bool empty = bytes_used() == 0;
+    VirtualFree(data_region, 0, MEM_RELEASE);
+    VirtualFree(record_region, 0, MEM_RELEASE);
+    printf("{\"fuzz_seed\":%u,\"fuzz_cases\":20000,\"valid_controls\":%u,\"accepted\":%u,\"peak_owned_bytes\":%zu}\n",
+           0x5eed2c22u, controls, accepted, peak);
+    if (!controls_ok || !budget_ok || !guards_ok || !stopped || !empty)
+      return 75;
   } else if (mode == "parallel" || mode == "parallel-budget") {
     bytes = dds(mode == "parallel" ? 4 * 1024 * 1024 + 128 : 16 * 1024 * 1024);
     std::array<std::array<unsigned char, 0x58>, 8> records{};

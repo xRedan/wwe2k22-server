@@ -62,9 +62,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C server test -race -count=1 -timeout=120s ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $integrationServer = Join-Path $env:RUNNER_TEMP 'wwe2k22-server-integration.exe'
+          $env:CGO_ENABLED = '0'
+          go -C server build -buildvcs=false -trimpath -ldflags='-s -w' -o $integrationServer ./cmd/wwe2k22-server
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/tests/run_images.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/tests/run_images.py --compiler $compiler --address-sanitizer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -X utf8 -B client/tests/run_server_integration.py --server $integrationServer
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -X utf8 -B client/tests/run_owned.py --compiler $compiler --openssl $openssl
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
