@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / 'src'
 TARGET = 'cf1ed48636f425a80ceb22c64341b4e3b31c9677a4e2b1b1a08fe66c2e0e7766'
-VERSION = '2026.10.25-client.1'
+VERSION = '2026.10.26-client.2'
 RUNTIME_FILES = ('dinput8.dll', 'wwe2k22-private.ini')
 LICENSE_FILES = ('THIRD-PARTY-NOTICES.txt', 'MINHOOK-LICENSE.txt', 'LLVM-MINGW-LICENSE.txt')
 PACKAGE_FILES = RUNTIME_FILES + LICENSE_FILES + ('manifest.json',)
@@ -60,7 +60,7 @@ def build(output, compiler, target_sha=TARGET, test_only=False):
         command = [str(compiler), '-std=c++17', *flags, '-shared', '-static', '-fstack-protector-strong', '-DWWE_TARGET_SHA256="' + target_sha + '"']
         if test_only:
             command += ['-DWWE_OWNED_TEST', '-Wno-unused-function', '-Wno-unused-variable']
-        command += [str(SOURCE / name) for name in ('loader.cpp', 'config.cpp', 'runtime.cpp', 'integrity.cpp', 'logging.cpp', 'publication.cpp', 'hooks.cpp', 'cleanup.cpp', 'http.cpp', 'game.cpp', 'lobby_search.cpp', 'diagnostics.cpp', 'entry.S', 'dinput8.def')]
+        command += [str(SOURCE / name) for name in ('loader.cpp', 'config.cpp', 'runtime.cpp', 'integrity.cpp', 'logging.cpp', 'publication.cpp', 'image_sync.cpp', 'hooks.cpp', 'cleanup.cpp', 'http.cpp', 'game.cpp', 'lobby_search.cpp', 'diagnostics.cpp', 'entry.S', 'dinput8.def')]
         command += objects + ['-lwinhttp', '-lbcrypt', '-Wl,--no-insert-timestamp,--dynamicbase,--nxcompat,--high-entropy-va', '-o', str(objects_dir / 'dinput8.dll')]
         subprocess.run(command, check=True)
         os.replace(objects_dir / 'dinput8.dll', output / 'dinput8.dll')

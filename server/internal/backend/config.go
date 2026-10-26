@@ -14,7 +14,7 @@ import (
 
 const ProtocolID = "wwe2k22-lab-v2"
 const TargetSHA = "cf1ed48636f425a80ceb22c64341b4e3b31c9677a4e2b1b1a08fe66c2e0e7766"
-const Release = "2026.10.25-server.1"
+const Release = "2026.10.26-server.2"
 
 type Config struct {
 	BindHost                                                            string
@@ -179,7 +179,7 @@ func newPolicy(c Config, key string) (*networkPolicy, error) {
 			}
 		}
 		if !trusted && (c.TLSCert == "" || key == "") {
-			return nil, errors.New("Internet-wide access requires TLS and a private access key")
+			return nil, errors.New("internet-wide access requires TLS and a private access key")
 		}
 		p.Networks = append(p.Networks, net)
 	}

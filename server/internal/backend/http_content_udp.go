@@ -79,7 +79,7 @@ func (s *Server) nativeContent(w http.ResponseWriter, r *http.Request) {
 		s.reply(w, r, 401, errorJSON("A local REST session is required"))
 		return
 	}
-	response, e := s.content.handle(op, uid, data, files)
+	response, e := s.nativeContentHandle(r, op, uid, data, files)
 	if e != nil {
 		code := statusCode(e, 503)
 		msg := "Invalid native content request"

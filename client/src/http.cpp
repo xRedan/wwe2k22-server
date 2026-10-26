@@ -88,6 +88,11 @@ HINTERNET WINAPI request(HINTERNET connection, LPCWSTR verb, LPCWSTR path,
     InternetHandle result(
         real_request(connection, verb, path, version, referer, accept, flags));
     DWORD error = GetLastError();
+    if (result && local && config.content && unicode(verb, 8) == L"POST" &&
+        unicode(path, 160) == L"/api/ContentMetaGet" &&
+        !real_headers(result.get(), L"X-WWE-Native-Images: 1\r\n", (DWORD)-1,
+                      WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE))
+      return nullptr;
     if (result) {
       bool accepted = false;
       {
@@ -279,6 +284,9 @@ BOOL WINAPI option(HINTERNET request, DWORD name, LPVOID data,
 }
 } // namespace
 void observe_headers(const wchar_t *data, DWORD length) {
+  // An upload of an earlier token must not overwrite a concurrent game login.
+  if (image_sync_transport())
+    return;
   auto text = header_text(data, length);
   if (!text)
     return;
@@ -287,6 +295,10 @@ void observe_headers(const wchar_t *data, DWORD length) {
     std::lock_guard<std::mutex> lock(state_lock);
     rest_session = std::move(*next);
   }
+}
+std::wstring image_rest_session() {
+  std::lock_guard<std::mutex> lock(state_lock);
+  return rest_session;
 }
 void learn_cdn(const std::string &url) {
   std::string_view value(url);

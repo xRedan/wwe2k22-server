@@ -432,8 +432,9 @@ bool install_game() {
   if (config.lobbies && !steam)
     return false;
   if (config.content &&
-      !stage_hook((void *)(base + profile::cdn_initializer),
-                  (void *)&wwe_cdn_gateway, &wwe_cdn_original))
+      (!stage_hook((void *)(base + profile::cdn_initializer),
+                   (void *)&wwe_cdn_gateway, &wwe_cdn_original) ||
+       !install_image_sync(base)))
     return false;
   if (config.lobbies) {
     if (!install_lobby_search(base))

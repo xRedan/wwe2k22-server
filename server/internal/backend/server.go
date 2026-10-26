@@ -61,6 +61,11 @@ type Server struct {
 	responses, unsupported, storageErrors atomic.Uint64
 	logger                                *eventLogger
 	imageImport                           map[string]any
+	imageMu                               sync.Mutex
+	imageChanged                          chan struct{}
+	imageWaiters                          int
+	imageCreated, imageUpdated            atomic.Uint64
+	imageUnchanged                        atomic.Uint64
 }
 
 func NewServer(c Config) (s *Server, err error) {
@@ -312,6 +317,8 @@ func (s *Server) status() (map[string]any, error) {
 		}
 		out["custom_content"] = v
 	}
+	out["capabilities"].(map[string]any)["native_image_sync"] = s.content != nil
+	out["native_image_sync"] = map[string]uint64{"created": s.imageCreated.Load(), "updated": s.imageUpdated.Load(), "unchanged": s.imageUnchanged.Load()}
 	if s.imageImport != nil {
 		out["native_image_import"] = s.imageImport
 	}
@@ -350,6 +357,8 @@ func (s *Server) replyBytes(w http.ResponseWriter, r *http.Request, status int, 
 }
 func safePath(path string) string {
 	switch path {
+	case "/lab/images/sync":
+		return path
 	case "/health", "/status", "/discovery/v1/services", "/api/Version", "/api/Login", "/Session/login", "/Session/update", "/api/GetPresets", "/api/GetParams", "/api/ContentBlacklist", "/api/PlayerGetMe", "/api/PlayerSet", "/api/LeaderboardPlayerGet", "/api/LeaderboardPlayerInc", "/api/LeaderboardPlayerMax", "/api/Ping", "/api/ResourceList", "/api/EulaGet", "/api/EulaAccept", "/api/PrivacyGet", "/api/PrivacyAccept", "/api/TOSGet", "/api/TOSAccept", "/core/sso/v1/auth/tokens", "/core/ssoRefresh/v1/auth/tokens", "/core/ssoHeartBeat/v1/presence/heartbeats", "/lab/vconline/match/create", "/lab/vconline/match/search", "/lab/vconline/match/update", "/lab/vconline/match/interlocked_update", "/lab/vconline/match/list", "/lab/lobbies/publish", "/lab/lobbies/withdraw", "/lab/lobbies/list", "/api/ContentUpload", "/api/ContentSave", "/api/ContentMetaGet", "/api/ContentSearch":
 		return path
 	}
@@ -404,6 +413,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.login(w, r)
 	case "/core/sso/v1/auth/tokens", "/core/ssoRefresh/v1/auth/tokens", "/core/ssoHeartBeat/v1/presence/heartbeats":
 		s.core(w, r)
+	case "/lab/images/sync":
+		s.imageSync(w, r)
 	case "/api/ContentUpload", "/api/ContentSave", "/api/ContentMetaGet", "/api/ContentSearch":
 		s.nativeContent(w, r)
 	default:

@@ -38,7 +38,7 @@ static BOOL CALLBACK initialize(PINIT_ONCE, void *, void **) {
                             (LPCWSTR)&initialize, &pinned))
       throw 1;
     // Allocate all mandatory resources before enabling any hook.
-    if (!start_publication() || MH_Initialize() != MH_OK || !install_http() ||
+    if (!start_publication() || !start_image_sync() || MH_Initialize() != MH_OK || !install_http() ||
         !install_game() || MH_QueueEnableHook(MH_ALL_HOOKS) != MH_OK)
       throw 1;
     activation_attempted = true;
@@ -64,6 +64,7 @@ static BOOL CALLBACK initialize(PINIT_ONCE, void *, void **) {
     // A detour may already be in flight after an activation attempt. Keep its
     // trampoline/code pinned, even on failure, rather than freeing live code.
     stop_publication();
+    stop_image_sync();
     note("configuration-or-start-failed");
     InterlockedExchange(&initialized, Failed);
   }
@@ -174,6 +175,7 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, void *) {
   // lock.
   if (reason == DLL_PROCESS_DETACH) {
     signal_publication_stop();
+    signal_image_sync_stop();
   }
   return TRUE;
 }

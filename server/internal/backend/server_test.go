@@ -137,7 +137,7 @@ func TestHTTPBootstrapProfilesAndNotices(t *testing.T) {
 		t.Fatal("patch")
 	}
 	code, _, b = request(t, s, "/api/PlayerGetMe", map[string]any{}, map[string]string{"X-Sessionid": other})
-	if str(object(t, b)["DisplayName"]) != "Giocatore locale" {
+	if code != 200 || str(object(t, b)["DisplayName"]) != "Giocatore locale" {
 		t.Fatal("profile ownership")
 	}
 	code, _, _ = request(t, s, "/api/PlayerSet", map[string]any{"DisplayName": "bad", "CreatorRank": -1}, headers)

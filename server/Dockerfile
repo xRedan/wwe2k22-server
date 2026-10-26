@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN mkdir -p /runtime/data /runtime/tmp && chmod 1777 /runtime/tmp
 COPY licenses/ /runtime/licenses/
 FROM scratch
-LABEL org.opencontainers.image.title="WWE 2K22 private server (Go)" org.opencontainers.image.version="2026.10.25-server.1"
+LABEL org.opencontainers.image.title="WWE 2K22 private server (Go)" org.opencontainers.image.version="2026.10.26-server.2"
 COPY --from=build --chown=10001:10001 /runtime/ /
 USER 10001:10001
 ENV WWE_BIND_HOST=0.0.0.0 WWE_STATE_FILE=/data/local-state.sqlite3 WWE_MATCHMAKING=true WWE_CUSTOM_CONTENT=true TMPDIR=/tmp GOMEMLIMIT=384MiB

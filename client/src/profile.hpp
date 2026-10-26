@@ -7,6 +7,7 @@ namespace wwe::profile {
 // is supported.
 inline constexpr uintptr_t cdn_initializer = 0x19491d0;
 inline constexpr uintptr_t session_reader = 0x1960fb0;
+inline constexpr uintptr_t image_reader = 0x3f3c70;
 // Public discovery task: preserve native metadata requests, ping and UI builder.
 inline constexpr uintptr_t query_start = 0x18d55a0;
 inline constexpr uintptr_t query_results_reset = 0x18dedc0;

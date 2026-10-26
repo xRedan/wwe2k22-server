@@ -41,7 +41,7 @@ func newContentStore(path string, quota int64) (*contentStore, error) {
 	if path == "" {
 		path = ":memory:"
 	}
-	conn, err := sqlite.OpenConn(path, sqlite.OpenReadWrite|sqlite.OpenCreate|sqlite.OpenFullMutex)
+	conn, err := sqlite.OpenConn(path, sqlite.OpenReadWrite|sqlite.OpenCreate)
 	if err != nil {
 		releaseDatabaseLease(lease)
 		return nil, err
@@ -406,12 +406,22 @@ func (s *contentStore) search(owner string, q contentQuery) ([]string, int, erro
 	for i, tag := range q.Tags {
 		tags[i] = fold.String(tag)
 	}
+	// Reuse the SQLite copy for this search. ColumnText followed by []byte
+	// allocated two complete metadata copies for every candidate row.
+	var metadataBytes []byte
 	// Stream each row: do not retain every opaque metadata document in memory.
 	err := sqlitex.Execute(s.conn, "SELECT c.id,c.owner,c.private,c.created,c.metadata,COUNT(s.owner) FROM content c LEFT JOIN saved s ON s.content_id=c.id WHERE c.private=0 OR c.owner=? GROUP BY c.id", &sqlitex.ExecOptions{Args: []any{owner}, ResultFunc: func(stmt *sqlite.Stmt) error {
 		if (stmt.ColumnInt64(2) != 0) != q.Private {
 			return nil
 		}
-		meta, err := jsonObject([]byte(stmt.ColumnText(4)), false)
+		size := stmt.ColumnLen(4)
+		if size > cap(metadataBytes) {
+			metadataBytes = make([]byte, size)
+		} else {
+			metadataBytes = metadataBytes[:size]
+		}
+		stmt.ColumnBytes(4, metadataBytes)
+		meta, err := jsonObject(metadataBytes, false)
 		if err != nil {
 			return err
 		}
