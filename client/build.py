@@ -131,9 +131,10 @@ def package(output, archive):
     try:
         with tempfile.NamedTemporaryFile(prefix=archive.name + '.', suffix='.tmp', dir=archive.parent, delete=False) as stream:
             temporary = Path(stream.name)
+        stamp = tuple(int(part) for part in VERSION.split('-', 1)[0].split('.')) + (0, 0, 0)
         with zipfile.ZipFile(temporary, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
             for name in PACKAGE_FILES:
-                entry = zipfile.ZipInfo('wwe2k22-client/' + name, (2026, 10, 24, 0, 0, 0))
+                entry = zipfile.ZipInfo('wwe2k22-client/' + name, stamp)
                 entry.compress_type = zipfile.ZIP_DEFLATED
                 entry.external_attr = 420 << 16
                 bundle.writestr(entry, payloads[name])
