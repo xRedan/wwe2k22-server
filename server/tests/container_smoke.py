@@ -59,6 +59,11 @@ def main(image):
         except urllib.error.HTTPError as error:
             assert error.code == 401
         docker('restart', name)
+        # Docker may allocate a different host port for an ephemeral mapping.
+        # Probe the current mapping rather than retaining the pre-restart URL.
+        inspected = json.loads(docker('inspect', name))[0]
+        port = inspected['NetworkSettings']['Ports']['8787/tcp'][0]['HostPort']
+        url = 'http://127.0.0.1:' + port
         assert docker('exec', name, '/wwe2k22-server', '--print-access-key') == key
         for attempt in range(40):
             try:
