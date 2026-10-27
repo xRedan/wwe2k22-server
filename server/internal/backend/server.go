@@ -72,7 +72,7 @@ func NewServer(c Config) (s *Server, err error) {
 	if err = c.Validate(); err != nil {
 		return nil, err
 	}
-	key, e := readAccessKey(c.AccessKeyFile)
+	key, e := LoadAccessKey(c.AccessKeyFile, c.GenerateAccessKey)
 	if e != nil {
 		return nil, e
 	}
@@ -124,7 +124,7 @@ func NewServer(c Config) (s *Server, err error) {
 	}
 	s.Config.AdvertiseHTTPPort = port
 	scheme := "http"
-	if c.TLSCert != "" {
+	if c.usesTLS() {
 		scheme = "https"
 	}
 	s.origin = scheme + "://" + strings.ToLower(c.HTTPHost) + ":" + strconv.Itoa(port)
@@ -150,14 +150,18 @@ func NewServer(c Config) (s *Server, err error) {
 		s.catalog = wire.Catalog()
 	}
 	s.listener = &boundedListener{Listener: s.listener, slots: make(chan struct{}, c.MaxConnections), policy: policy}
-	if c.TLSCert != "" {
-		cert, e := tls.LoadX509KeyPair(c.TLSCert, c.TLSKey)
-		if e != nil {
-			return nil, errors.New("cannot load TLS certificate/key")
-		}
-		s.listener = tls.NewListener(s.listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}})
+	tlsConfig, e := c.serverTLSConfig()
+	if e != nil {
+		return nil, e
+	}
+	if tlsConfig != nil {
+		s.listener = tls.NewListener(s.listener, tlsConfig)
 	}
 	s.http = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 10 * time.Second, WriteTimeout: 120 * time.Second, MaxHeaderBytes: 32 * 1024, ErrorLog: log.New(io.Discard, "", 0)}
+	if c.ACMEDomain != "" {
+		// Initial certificate issuance may need more than a normal handshake.
+		s.http.ReadHeaderTimeout = 90 * time.Second
+	}
 	s.http.SetKeepAlivesEnabled(false)
 	return s, nil
 }
@@ -293,7 +297,7 @@ func (s *Server) status() (map[string]any, error) {
 	s.mu.Lock()
 	now := time.Now()
 	live := s.live(now)
-	out := map[string]any{"protocol": ProtocolID, "implementation": "go", "release": Release, "uptime_seconds": int(time.Since(s.started).Seconds()), "durable_metadata": s.state.Persistent, "tls": s.Config.TLSCert != "", "access_key_required": s.key != "", "logging": "summary", "rest_sessions": len(s.rest), "pegasus_sessions": len(s.pegasus), "profiles": len(s.profiles), "local_counters": len(s.counters), "http": map[string]uint64{"responses": s.responses.Load(), "unsupported": s.unsupported.Load(), "storage_errors": s.storageErrors.Load(), "log_write_errors": s.logger.errors.Load()}}
+	out := map[string]any{"protocol": ProtocolID, "implementation": "go", "release": Release, "uptime_seconds": int(time.Since(s.started).Seconds()), "durable_metadata": s.state.Persistent, "tls": s.Config.usesTLS(), "access_key_required": s.key != "", "logging": "summary", "rest_sessions": len(s.rest), "pegasus_sessions": len(s.pegasus), "profiles": len(s.profiles), "local_counters": len(s.counters), "http": map[string]uint64{"responses": s.responses.Load(), "unsupported": s.unsupported.Load(), "storage_errors": s.storageErrors.Load(), "log_write_errors": s.logger.errors.Load()}}
 	if s.Config.VerboseLog {
 		out["logging"] = "verbose"
 	}
@@ -436,7 +440,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 		if s.dir != nil {
 			udp = s.dir.Endpoint.Port
 		}
-		s.reply(w, r, 200, map[string]any{"stage": "experimental-private-match", "multiplayer": false, "protocol": ProtocolID, "target_sha256": TargetSHA, "advertised_host": s.Config.AdvertiseHost, "http_port": s.Config.AdvertiseHTTPPort, "udp_port": udp, "matchmaking": s.dir != nil, "transport": map[bool]string{true: "https", false: "http-over-trusted-network"}[s.Config.TLSCert != ""], "access_key_required": s.key != "", "release": Release, "implementation": "go"})
+		s.reply(w, r, 200, map[string]any{"stage": "experimental-private-match", "multiplayer": false, "protocol": ProtocolID, "target_sha256": TargetSHA, "advertised_host": s.Config.AdvertiseHost, "http_port": s.Config.AdvertiseHTTPPort, "udp_port": udp, "matchmaking": s.dir != nil, "transport": map[bool]string{true: "https", false: "http-over-trusted-network"}[s.Config.usesTLS()], "access_key_required": s.key != "", "release": Release, "implementation": "go"})
 	case "/status":
 		v, e := s.status()
 		if e != nil {
@@ -449,7 +453,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 		for _, name := range strings.Fields("unknown sso ssoHeartBeat ssoRefresh ssoLegalDocuments ssoAccountLinking telemetry discovery entitlements codes license store catalog promotions promotionsV2 wallet purchase matchmaker clouddata cloudprograms ssoAccountCreation") {
 			context := "/core/" + name + "/v1"
 			scheme := "http"
-			if s.Config.TLSCert != "" {
+			if s.Config.usesTLS() {
 				scheme = "https"
 			}
 			entries = append(entries, map[string]any{"serviceId": name, "name": name, "baseUrl": s.origin + context, "scheme": scheme, "host": strings.TrimPrefix(s.origin, scheme+"://"), "contextPath": context, "tags": []any{}})

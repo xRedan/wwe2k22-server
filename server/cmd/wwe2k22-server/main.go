@@ -26,9 +26,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var networks networkFlags
 	var configPath string
-	var version bool
+	var version, printAccessKey bool
 	fs.StringVar(&configPath, "config", "", "JSON settings file; CLI overrides environment and JSON")
 	fs.BoolVar(&version, "version", false, "Print the Go backend version and exit")
+	fs.BoolVar(&printAccessKey, "print-access-key", false, "Print the configured access key and exit without starting the server")
 	fs.StringVar(&c.BindHost, "bind-host", c.BindHost, "HTTP/UDP listen IPv4")
 	fs.StringVar(&c.AdvertiseHost, "advertise-host", "", "IPv4 reachable by all players")
 	fs.StringVar(&c.HTTPHost, "http-host", "", "HTTP(S) hostname advertised to clients")
@@ -49,6 +50,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&c.TLSCert, "tls-cert", "", "PEM server certificate chain")
 	fs.StringVar(&c.TLSKey, "tls-key", "", "PEM private key")
 	fs.StringVar(&c.AccessKeyFile, "access-key-file", "", "Private shared access-key file")
+	fs.BoolVar(&c.GenerateAccessKey, "generate-access-key", false, "Create a random persistent access key only if absent")
+	fs.StringVar(&c.ACMEDomain, "acme-domain", "", "One DNS domain for automatic HTTPS via public TCP 443")
+	fs.StringVar(&c.ACMEEmail, "acme-email", "", "ACME account contact email")
+	fs.StringVar(&c.ACMECache, "acme-cache", "", "Persistent private certificate-cache directory")
+	fs.BoolVar(&c.ACMEAcceptTerms, "acme-accept-terms", false, "Accept Let's Encrypt terms for automatic HTTPS")
 	fs.StringVar(&c.LogFile, "log", "-", "Diagnostic JSONL file; - for console only")
 	fs.BoolVar(&c.VerboseLog, "verbose-log", false, "Log successful request metadata too; never payloads or credentials")
 	fs.StringVar(&c.ImportImages, "import-native-images", "", "Operator original-image capture manifest")
@@ -117,7 +123,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		seenSettings := map[string]bool{}
 		for k, v := range m {
 			name := strings.ReplaceAll(k, "_", "-")
-			if name == "config" || name == "version" {
+			if name == "config" || name == "version" || name == "print-access-key" {
 				fmt.Fprintln(stderr, "Unsupported server setting:", name)
 				return 2
 			}
@@ -139,13 +145,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "Invalid configuration directory")
 			return 2
 		}
-		for _, p := range []*string{&c.StateFile, &c.TLSCert, &c.TLSKey, &c.AccessKeyFile, &c.LogFile, &c.ImportImages} {
+		for _, p := range []*string{&c.StateFile, &c.TLSCert, &c.TLSKey, &c.AccessKeyFile, &c.ACMECache, &c.LogFile, &c.ImportImages} {
 			if *p != "" && *p != "-" && !filepath.IsAbs(*p) {
 				*p = filepath.Join(dir, *p)
 			}
 		}
 	}
 	env := map[string]string{"WWE_BIND_HOST": "bind-host", "WWE_ADVERTISE_HOST": "advertise-host", "WWE_HTTP_HOST": "http-host", "WWE_HTTP_PORT": "port", "WWE_UDP_PORT": "udp-port", "WWE_ADVERTISE_HTTP_PORT": "advertise-http-port", "WWE_ADVERTISE_UDP_PORT": "advertise-udp-port", "WWE_STATE_FILE": "state-file", "WWE_MAX_CONNECTIONS": "max-connections", "WWE_ROOM_IDLE_SECONDS": "room-idle-seconds", "WWE_HTTP_RATE": "http-rate", "WWE_UDP_RATE": "udp-rate", "WWE_TLS_CERT": "tls-cert", "WWE_TLS_KEY": "tls-key", "WWE_ACCESS_KEY_FILE": "access-key-file", "WWE_CUSTOM_CONTENT": "custom-content", "WWE_CONTENT_QUOTA_MIB": "content-quota-mib", "WWE_NATIVE_IMAGES_MANIFEST": "import-native-images", "WWE_NATIVE_IMAGE_OWNER": "native-image-owner", "WWE_UPGRADE_NATIVE_IMAGES": "upgrade-native-images", "WWE_VERBOSE_LOG": "verbose-log", "WWE_MATCHMAKING": "vconline-matchmaking", "WWE_LOG": "log"}
+	env["WWE_GENERATE_ACCESS_KEY"] = "generate-access-key"
+	env["WWE_ACME_DOMAIN"] = "acme-domain"
+	env["WWE_ACME_EMAIL"] = "acme-email"
+	env["WWE_ACME_CACHE"] = "acme-cache"
+	env["WWE_ACME_ACCEPT_TERMS"] = "acme-accept-terms"
 	for variable, name := range env {
 		if value, has := os.LookupEnv(variable); has && strings.TrimSpace(value) != "" {
 			if e := fs.Set(name, strings.TrimSpace(value)); e != nil {
@@ -183,6 +194,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if version {
 		fmt.Fprintln(stdout, backend.Release)
+		return 0
+	}
+	if printAccessKey {
+		key, err := backend.LoadAccessKey(c.AccessKeyFile, c.GenerateAccessKey)
+		if err != nil || key == "" {
+			fmt.Fprintln(stderr, "Cannot read the configured access key")
+			return 1
+		}
+		fmt.Fprintln(stdout, key)
 		return 0
 	}
 	c.AllowedNetworks = networks

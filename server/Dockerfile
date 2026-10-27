@@ -10,8 +10,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN mkdir -p /runtime/data /runtime/tmp && chmod 1777 /runtime/tmp
 COPY licenses/ /runtime/licenses/
 FROM scratch
-LABEL org.opencontainers.image.title="WWE 2K22 private server (Go)" org.opencontainers.image.version="2026.10.26-server.2"
+LABEL org.opencontainers.image.title="WWE 2K22 private server (Go)" org.opencontainers.image.version="2026.10.27-server.1"
 COPY --from=build --chown=10001:10001 /runtime/ /
+# ACME contacts its certificate authority over verified HTTPS.
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 10001:10001
 # Compose reserves 272 MiB for tmpfs under a 512 MiB container ceiling.
 # Keep 48 MiB of headroom beyond Go-managed memory and that maximum tmpfs usage.

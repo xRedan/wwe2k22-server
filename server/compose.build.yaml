@@ -1,0 +1,56 @@
+# Source-build variant. Run explicitly: docker compose -f compose.build.yaml up -d --build
+services:
+  wwe2k22:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    stop_grace_period: 35s
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=272m
+    environment:
+      WWE_ADVERTISE_HOST: "${WWE_ADVERTISE_HOST:?Set the reachable server IPv4}"
+      WWE_ALLOWED_NETWORKS: "${WWE_ALLOWED_NETWORKS:?Set client IPv4 CIDRs}"
+      WWE_BIND_HOST: "0.0.0.0"
+      WWE_HTTP_PORT: "${WWE_HTTP_PORT:-8787}"
+      WWE_UDP_PORT: "${WWE_UDP_PORT:-8788}"
+      WWE_HTTP_HOST: "${WWE_HTTP_HOST:-}"
+      WWE_ADVERTISE_HTTP_PORT: "${WWE_ADVERTISE_HTTP_PORT:-}"
+      WWE_ADVERTISE_UDP_PORT: "${WWE_ADVERTISE_UDP_PORT:-}"
+      WWE_TLS_CERT: "${WWE_TLS_CERT:-}"
+      WWE_TLS_KEY: "${WWE_TLS_KEY:-}"
+      WWE_ACCESS_KEY_FILE: "${WWE_ACCESS_KEY_FILE:-}"
+      WWE_GENERATE_ACCESS_KEY: "${WWE_GENERATE_ACCESS_KEY:-false}"
+      WWE_ACME_DOMAIN: "${WWE_ACME_DOMAIN:-}"
+      WWE_ACME_EMAIL: "${WWE_ACME_EMAIL:-}"
+      WWE_ACME_CACHE: "${WWE_ACME_CACHE:-}"
+      WWE_ACME_ACCEPT_TERMS: "${WWE_ACME_ACCEPT_TERMS:-false}"
+      WWE_MATCHMAKING: "true"
+      WWE_VERBOSE_LOG: "${WWE_VERBOSE_LOG:-false}"
+      WWE_CUSTOM_CONTENT: "${WWE_CUSTOM_CONTENT:-true}"
+      WWE_NATIVE_IMAGES_MANIFEST: "${WWE_NATIVE_IMAGES_MANIFEST:-}"
+      WWE_NATIVE_IMAGE_OWNER: "${WWE_NATIVE_IMAGE_OWNER:-}"
+      WWE_UPGRADE_NATIVE_IMAGES: "${WWE_UPGRADE_NATIVE_IMAGES:-false}"
+      WWE_CONTENT_QUOTA_MIB: "${WWE_CONTENT_QUOTA_MIB:-256}"
+      WWE_STATE_FILE: /data/local-state.sqlite3
+      WWE_MAX_CONNECTIONS: "${WWE_MAX_CONNECTIONS:-64}"
+      WWE_ROOM_IDLE_SECONDS: "${WWE_ROOM_IDLE_SECONDS:-3600}"
+      WWE_HTTP_RATE: "${WWE_HTTP_RATE:-30}"
+      WWE_UDP_RATE: "${WWE_UDP_RATE:-2000}"
+    ports:
+      - "${WWE_PUBLISH_IP:?Set server bind IPv4}:${WWE_HTTP_PORT:-8787}:${WWE_HTTP_PORT:-8787}/tcp"
+      - "${WWE_PUBLISH_IP:?Set server bind IPv4}:${WWE_UDP_PORT:-8788}:${WWE_UDP_PORT:-8788}/udp"
+    volumes:
+      - state:/data
+      - ./secrets:/run/secrets:ro
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+volumes:
+  state:

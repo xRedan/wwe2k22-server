@@ -1,9 +1,22 @@
-# One Go backend for LAN, VPN and public HTTPS.
+# Standalone VPS deployment: this is the only file to copy to the VPS.
+# Edit the values below, then: docker compose up -d
+# After publishing, the workflow also supplies a copy pinned to the image digest.
+x-settings:
+  image: &image ghcr.io/replace-me/wwe2k22-server-client:2026.10.27-server.1
+  public_ipv4: &public_ipv4 "203.0.113.10"
+  domain: &domain "wwe.example.com"
+  email: &email "admin@example.com"
+  # Set to "true" after reviewing https://letsencrypt.org/repository/
+  accept_acme_terms: &accept_terms "false"
+  publish_ip: &publish_ip "0.0.0.0"
+  # Automatic HTTPS requires public TCP 443 (TLS-ALPN-01).
+  https_port: &https_port "443"
+  udp_port: &udp_port "8788"
+  allowed_networks: &networks "0.0.0.0/0"
+
 services:
   wwe2k22:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: *image
     restart: unless-stopped
     init: true
     read_only: true
@@ -15,37 +28,44 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=272m
     environment:
-      WWE_ADVERTISE_HOST: "${WWE_ADVERTISE_HOST:?Set the reachable server IPv4}"
-      WWE_ALLOWED_NETWORKS: "${WWE_ALLOWED_NETWORKS:?Set client IPv4 CIDRs}"
       WWE_BIND_HOST: "0.0.0.0"
-      WWE_HTTP_PORT: "${WWE_HTTP_PORT:-8787}"
-      WWE_UDP_PORT: "${WWE_UDP_PORT:-8788}"
-      WWE_HTTP_HOST: "${WWE_HTTP_HOST:-}"
-      WWE_ADVERTISE_HTTP_PORT: "${WWE_ADVERTISE_HTTP_PORT:-}"
-      WWE_ADVERTISE_UDP_PORT: "${WWE_ADVERTISE_UDP_PORT:-}"
-      WWE_TLS_CERT: "${WWE_TLS_CERT:-}"
-      WWE_TLS_KEY: "${WWE_TLS_KEY:-}"
-      WWE_ACCESS_KEY_FILE: "${WWE_ACCESS_KEY_FILE:-}"
-      WWE_MATCHMAKING: "true"
-      WWE_VERBOSE_LOG: "${WWE_VERBOSE_LOG:-false}"
-      WWE_CUSTOM_CONTENT: "${WWE_CUSTOM_CONTENT:-true}"
-      WWE_NATIVE_IMAGES_MANIFEST: "${WWE_NATIVE_IMAGES_MANIFEST:-}"
-      WWE_NATIVE_IMAGE_OWNER: "${WWE_NATIVE_IMAGE_OWNER:-}"
-      WWE_UPGRADE_NATIVE_IMAGES: "${WWE_UPGRADE_NATIVE_IMAGES:-false}"
-      WWE_CONTENT_QUOTA_MIB: "${WWE_CONTENT_QUOTA_MIB:-256}"
+      WWE_HTTP_PORT: "8787"
+      WWE_UDP_PORT: "8788"
+      WWE_ADVERTISE_HOST: *public_ipv4
+      WWE_HTTP_HOST: *domain
+      WWE_ADVERTISE_HTTP_PORT: *https_port
+      WWE_ADVERTISE_UDP_PORT: *udp_port
+      WWE_ALLOWED_NETWORKS: *networks
+      WWE_ACME_DOMAIN: *domain
+      WWE_ACME_EMAIL: *email
+      WWE_ACME_ACCEPT_TERMS: *accept_terms
+      WWE_ACME_CACHE: /data/acme
+      WWE_ACCESS_KEY_FILE: /data/access.key
+      WWE_GENERATE_ACCESS_KEY: "true"
       WWE_STATE_FILE: /data/local-state.sqlite3
-      WWE_MAX_CONNECTIONS: "${WWE_MAX_CONNECTIONS:-64}"
-      WWE_ROOM_IDLE_SECONDS: "${WWE_ROOM_IDLE_SECONDS:-3600}"
-      WWE_HTTP_RATE: "${WWE_HTTP_RATE:-30}"
-      WWE_UDP_RATE: "${WWE_UDP_RATE:-2000}"
+      WWE_MATCHMAKING: "true"
+      WWE_CUSTOM_CONTENT: "true"
+      WWE_CONTENT_QUOTA_MIB: "256"
+      WWE_MAX_CONNECTIONS: "64"
+      WWE_ROOM_IDLE_SECONDS: "3600"
+      WWE_HTTP_RATE: "30"
+      WWE_UDP_RATE: "2000"
+      WWE_VERBOSE_LOG: "false"
+      GOMEMLIMIT: "192MiB"
     ports:
-      - "${WWE_PUBLISH_IP:?Set server bind IPv4}:${WWE_HTTP_PORT:-8787}:${WWE_HTTP_PORT:-8787}/tcp"
-      - "${WWE_PUBLISH_IP:?Set server bind IPv4}:${WWE_UDP_PORT:-8788}:${WWE_UDP_PORT:-8788}/udp"
+      - target: 8787
+        published: *https_port
+        host_ip: *publish_ip
+        protocol: tcp
+      - target: 8788
+        published: *udp_port
+        host_ip: *publish_ip
+        protocol: udp
     volumes:
       - state:/data
-      - ./secrets:/run/secrets:ro
     logging:
       driver: json-file
       options: {max-size: "5m", max-file: "3"}
+
 volumes:
   state:

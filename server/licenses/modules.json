@@ -7,6 +7,13 @@
     ]
   },
   {
+    "module": "github.com/google/uuid",
+    "version": "v1.6.0",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
     "module": "github.com/mattn/go-isatty",
     "version": "v0.0.24",
     "license_files": [
@@ -25,6 +32,22 @@
     "version": "v0.0.0-20230129092748-24d4a6f8daec",
     "license_files": [
       "LICENSE"
+    ]
+  },
+  {
+    "module": "golang.org/x/crypto",
+    "version": "v0.58.0",
+    "license_files": [
+      "LICENSE",
+      "PATENTS"
+    ]
+  },
+  {
+    "module": "golang.org/x/net",
+    "version": "v0.60.0",
+    "license_files": [
+      "LICENSE",
+      "PATENTS"
     ]
   },
   {

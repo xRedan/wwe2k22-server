@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"io"
+	"net/mail"
 	"net/netip"
 	"os"
 	"regexp"
@@ -14,7 +15,7 @@ import (
 
 const ProtocolID = "wwe2k22-lab-v2"
 const TargetSHA = "cf1ed48636f425a80ceb22c64341b4e3b31c9677a4e2b1b1a08fe66c2e0e7766"
-const Release = "2026.10.26-server.2"
+const Release = "2026.10.27-server.1"
 
 type Config struct {
 	BindHost                                                            string
@@ -27,6 +28,8 @@ type Config struct {
 	ContentQuotaMiB, MaxConnections, RoomIdleSeconds, HTTPRate, UDPRate int
 	AllowedNetworks                                                     []string
 	TLSCert, TLSKey, AccessKeyFile, LogFile                             string
+	ACMEDomain, ACMEEmail, ACMECache                                    string
+	ACMEAcceptTerms, GenerateAccessKey                                  bool
 	VerboseLog                                                          bool
 	ImportImages, ImageOwner                                            string
 	UpgradeImages                                                       bool
@@ -83,12 +86,46 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPHost == "" {
 		c.HTTPHost = c.AdvertiseHost
+		if c.ACMEDomain != "" {
+			c.HTTPHost = c.ACMEDomain
+		}
 	}
 	if !validHTTPHost(c.HTTPHost) {
 		return errors.New("invalid HTTP hostname")
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		return errors.New("provide both TLS certificate and key")
+	}
+	if c.ACMEDomain != "" {
+		c.ACMEDomain = strings.ToLower(c.ACMEDomain)
+		_, ipError := netip.ParseAddr(c.ACMEDomain)
+		contact, emailError := mail.ParseAddress(c.ACMEEmail)
+		if !validHTTPHost(c.ACMEDomain) || !strings.Contains(c.ACMEDomain, ".") || ipError == nil ||
+			!strings.EqualFold(c.HTTPHost, c.ACMEDomain) || c.TLSCert != "" ||
+			c.ACMECache == "" || !c.ACMEAcceptTerms || emailError != nil || contact.Address != c.ACMEEmail {
+			return errors.New("automatic HTTPS requires one DNS domain matching http-host, email, persistent cache and accepted ACME terms; PEM settings must be empty")
+		}
+		// ACME validation connects from the CA's changing public addresses.
+		// Restrictive source networks remain supported with operator PEM files.
+		allPublic := false
+		for _, cidr := range c.AllowedNetworks {
+			allPublic = allPublic || cidr == "0.0.0.0/0"
+		}
+		if !allPublic || c.AccessKeyFile == "" {
+			return errors.New("automatic HTTPS requires allow-network 0.0.0.0/0 and an access-key file")
+		}
+		publicPort := c.HTTPPort
+		if c.AdvertiseHTTPPort != 0 {
+			publicPort = c.AdvertiseHTTPPort
+		}
+		if publicPort != 443 {
+			return errors.New("automatic HTTPS requires public TCP port 443 for TLS-ALPN-01")
+		}
+	} else if c.ACMEEmail != "" || c.ACMECache != "" || c.ACMEAcceptTerms {
+		return errors.New("ACME settings require acme-domain")
+	}
+	if c.GenerateAccessKey && c.AccessKeyFile == "" {
+		return errors.New("generated access key requires access-key-file")
 	}
 	for _, p := range []int{c.HTTPPort, c.UDPPort, c.AdvertiseHTTPPort, c.AdvertiseUDPPort} {
 		if p < 0 || p > 65535 {
@@ -108,20 +145,29 @@ func readAccessKey(path string) (string, error) {
 		return "", nil
 	}
 	info, e := os.Stat(path)
-	if e != nil || !info.Mode().IsRegular() || info.Size() >= 128 {
+	if e != nil {
+		return "", &accessKeyIOError{e}
+	}
+	if !info.Mode().IsRegular() || info.Size() >= 128 {
 		return "", errors.New("access key must be a small regular file")
 	}
 	f, e := os.Open(path)
 	if e != nil {
-		return "", errors.New("cannot read access key file")
+		return "", &accessKeyIOError{e}
 	}
 	defer f.Close()
 	info, e = f.Stat()
-	if e != nil || !info.Mode().IsRegular() {
+	if e != nil {
+		return "", &accessKeyIOError{e}
+	}
+	if !info.Mode().IsRegular() {
 		return "", errors.New("access key must be a regular file")
 	}
 	raw, e := io.ReadAll(io.LimitReader(f, 128))
-	if e != nil || len(raw) >= 128 {
+	if e != nil {
+		return "", &accessKeyIOError{e}
+	}
+	if len(raw) >= 128 {
 		return "", errors.New("cannot read access key file")
 	}
 
@@ -178,13 +224,15 @@ func newPolicy(c Config, key string) (*networkPolicy, error) {
 				trusted = true
 			}
 		}
-		if !trusted && (c.TLSCert == "" || key == "") {
+		if !trusted && (!c.usesTLS() || key == "") {
 			return nil, errors.New("internet-wide access requires TLS and a private access key")
 		}
 		p.Networks = append(p.Networks, net)
 	}
 	return p, nil
 }
+
+func (c Config) usesTLS() bool { return c.TLSCert != "" || c.ACMEDomain != "" }
 func (p *networkPolicy) admit(ip netip.Addr, channel string, now time.Time) bool {
 	allowed := false
 	for _, net := range p.Networks {

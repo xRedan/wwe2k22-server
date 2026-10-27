@@ -1,0 +1,125 @@
+name: Server container
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified image to GHCR
+        type: boolean
+        default: false
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  server-checks:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'server-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: server/go.sum
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: go test -race -count=1 -timeout=120s ./...
+
+  container:
+    needs: server-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Resolve image identity from the repository and source release
+        id: identity
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${REPOSITORY,,}"
+          version=$(sed -n 's/^const Release = "\([a-z0-9.-]*\)"$/\1/p' server/internal/backend/config.go)
+          test -n "$version"
+          grep -Fq "ghcr.io/replace-me/wwe2k22-server-client:$version" server/compose.yaml
+          grep -Fq "org.opencontainers.image.version=\"$version\"" server/Dockerfile
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build the Linux image for runtime checks
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: server
+          load: true
+          platforms: linux/amd64
+          tags: wwe2k22-owned-check:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Validate Compose and test the actual non-root read-only container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f server/compose.yaml config --quiet
+          python3 server/tests/container_smoke.py wwe2k22-owned-check:local
+      - name: Authenticate to GHCR
+        if: github.event_name == 'release' || inputs.publish
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish amd64 and arm64
+        id: publish
+        if: github.event_name == 'release' || inputs.publish
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.identity.outputs.image }}:${{ steps.identity.outputs.version }}
+            ${{ steps.identity.outputs.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Prepare the standalone Compose pinned to the published digest
+        if: github.event_name == 'release' || inputs.publish
+        env:
+          IMAGE: ${{ steps.identity.outputs.image }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          VERSION: ${{ steps.identity.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deployment
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          source = Path('server/compose.yaml').read_text(encoding='utf-8')
+          marker = 'ghcr.io/replace-me/wwe2k22-server-client:' + os.environ['VERSION']
+          if source.count(marker) != 1:
+              raise SystemExit('Compose image marker must occur exactly once')
+          Path('deployment/compose.yaml').write_text(
+              source.replace(marker, os.environ['IMAGE'] + '@' + os.environ['DIGEST']), encoding='utf-8')
+          PY
+          docker compose -f deployment/compose.yaml config --quiet
+          echo "Published $IMAGE@$DIGEST. Download the standalone-compose artifact and edit x-settings." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload standalone Compose
+        if: github.event_name == 'release' || inputs.publish
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: standalone-compose
+          path: deployment/compose.yaml
+          if-no-files-found: error

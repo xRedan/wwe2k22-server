@@ -14,3 +14,9 @@ The following pinned modules are imported by the server. Their original notices 
 - modernc.org/memory v1.12.1 (AUTHORS, LICENSE, LICENSE-GO, LICENSE-LOGO, LICENSE-MMAP-GO)
 - modernc.org/sqlite v1.61.0 (AUTHORS, LICENSE, LICENSE-3RD-PARTY.txt, LICENSE-SQLITE, LICENSE-SQLITE_VEC)
 - zombiezen.com/go/sqlite v1.4.2 (LICENSE)
+
+- golang.org/x/crypto v0.58.0 (see preserved notices)
+
+- golang.org/x/net v0.60.0 (see preserved notices)
+
+- github.com/google/uuid v1.6.0 (see preserved notices)
