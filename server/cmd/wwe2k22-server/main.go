@@ -25,9 +25,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wwe2k22-server", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var networks networkFlags
-	var configPath string
+	var configPath, deployment string
+	var networksConfigured bool
 	var version, printAccessKey bool
 	fs.StringVar(&configPath, "config", "", "JSON settings file; CLI overrides environment and JSON")
+	fs.StringVar(&deployment, "deployment", "manual", "Defaults profile: manual or public (automatic HTTPS)")
 	fs.BoolVar(&version, "version", false, "Print the Go backend version and exit")
 	fs.BoolVar(&printAccessKey, "print-access-key", false, "Print the configured access key and exit without starting the server")
 	fs.StringVar(&c.BindHost, "bind-host", c.BindHost, "HTTP/UDP listen IPv4")
@@ -73,6 +75,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	set := func(name string, value any) error {
 		if name == "allow-network" {
+			networksConfigured = true
 			a, ok := value.([]any)
 			if !ok || len(a) == 0 {
 				return errors.New("allowed_networks must be a nonempty array")
@@ -152,6 +155,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	env := map[string]string{"WWE_BIND_HOST": "bind-host", "WWE_ADVERTISE_HOST": "advertise-host", "WWE_HTTP_HOST": "http-host", "WWE_HTTP_PORT": "port", "WWE_UDP_PORT": "udp-port", "WWE_ADVERTISE_HTTP_PORT": "advertise-http-port", "WWE_ADVERTISE_UDP_PORT": "advertise-udp-port", "WWE_STATE_FILE": "state-file", "WWE_MAX_CONNECTIONS": "max-connections", "WWE_ROOM_IDLE_SECONDS": "room-idle-seconds", "WWE_HTTP_RATE": "http-rate", "WWE_UDP_RATE": "udp-rate", "WWE_TLS_CERT": "tls-cert", "WWE_TLS_KEY": "tls-key", "WWE_ACCESS_KEY_FILE": "access-key-file", "WWE_CUSTOM_CONTENT": "custom-content", "WWE_CONTENT_QUOTA_MIB": "content-quota-mib", "WWE_NATIVE_IMAGES_MANIFEST": "import-native-images", "WWE_NATIVE_IMAGE_OWNER": "native-image-owner", "WWE_UPGRADE_NATIVE_IMAGES": "upgrade-native-images", "WWE_VERBOSE_LOG": "verbose-log", "WWE_MATCHMAKING": "vconline-matchmaking", "WWE_LOG": "log"}
+	env["WWE_DEPLOYMENT"] = "deployment"
 	env["WWE_GENERATE_ACCESS_KEY"] = "generate-access-key"
 	env["WWE_ACME_DOMAIN"] = "acme-domain"
 	env["WWE_ACME_EMAIL"] = "acme-email"
@@ -166,6 +170,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if value, has := os.LookupEnv("WWE_ALLOWED_NETWORKS"); has {
+		networksConfigured = true
 		networks = nil
 		for _, part := range strings.Split(value, ",") {
 			if v := strings.TrimSpace(part); v != "" {
@@ -175,11 +180,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	explicitNetworks := false
 	for _, arg := range args {
-		if arg == "--allow-network" || arg == "-allow-network" || strings.HasPrefix(arg, "--allow-network=") {
+		if arg == "--allow-network" || arg == "-allow-network" || strings.HasPrefix(arg, "--allow-network=") || strings.HasPrefix(arg, "-allow-network=") {
 			explicitNetworks = true
 		}
 	}
 	if explicitNetworks {
+		networksConfigured = true
 		networks = nil
 	}
 	if e := fs.Parse(args); e != nil {
@@ -195,6 +201,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if version {
 		fmt.Fprintln(stdout, backend.Release)
 		return 0
+	}
+	if err := applyDeploymentDefaults(fs, &c, deployment, networksConfigured); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
 	}
 	if printAccessKey {
 		key, err := backend.LoadAccessKey(c.AccessKeyFile, c.GenerateAccessKey)

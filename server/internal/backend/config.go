@@ -15,7 +15,7 @@ import (
 
 const ProtocolID = "wwe2k22-lab-v2"
 const TargetSHA = "cf1ed48636f425a80ceb22c64341b4e3b31c9677a4e2b1b1a08fe66c2e0e7766"
-const Release = "2026.10.27-server.1"
+const Release = "2026.10.28-server.1"
 
 type Config struct {
 	BindHost                                                            string

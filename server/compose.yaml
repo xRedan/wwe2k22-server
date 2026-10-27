@@ -1,71 +1,27 @@
-# Standalone VPS deployment: this is the only file to copy to the VPS.
-# Edit the values below, then: docker compose up -d
-# After publishing, the workflow also supplies a copy pinned to the image digest.
-x-settings:
-  image: &image ghcr.io/replace-me/wwe2k22-server-client:2026.10.27-server.1
-  public_ipv4: &public_ipv4 "203.0.113.10"
-  domain: &domain "wwe.example.com"
-  email: &email "admin@example.com"
-  # Set to "true" after reviewing https://letsencrypt.org/repository/
-  accept_acme_terms: &accept_terms "false"
-  publish_ip: &publish_ip "0.0.0.0"
-  # Automatic HTTPS requires public TCP 443 (TLS-ALPN-01).
-  https_port: &https_port "443"
-  udp_port: &udp_port "8788"
-  allowed_networks: &networks "0.0.0.0/0"
-
+# Edit only the four values under environment, then: docker compose up -d
 services:
   wwe2k22:
-    image: *image
+    image: ghcr.io/replace-me/wwe2k22-server-client:2026.10.28-server.1
     restart: unless-stopped
     init: true
+    environment:
+      WWE_DEPLOYMENT: public
+      WWE_ADVERTISE_HOST: "203.0.113.10"
+      WWE_ACME_DOMAIN: "wwe.example.com"
+      WWE_ACME_EMAIL: "admin@example.com"
+      # Set true after accepting https://letsencrypt.org/repository/
+      WWE_ACME_ACCEPT_TERMS: "false"
+    ports: ["443:8787/tcp", "8788:8788/udp"]
+    volumes: ["state:/data"]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    pids_limit: 128
     mem_limit: 512m
+    pids_limit: 128
     stop_grace_period: 35s
-    tmpfs:
-      - /tmp:rw,nosuid,nodev,noexec,size=272m
-    environment:
-      WWE_BIND_HOST: "0.0.0.0"
-      WWE_HTTP_PORT: "8787"
-      WWE_UDP_PORT: "8788"
-      WWE_ADVERTISE_HOST: *public_ipv4
-      WWE_HTTP_HOST: *domain
-      WWE_ADVERTISE_HTTP_PORT: *https_port
-      WWE_ADVERTISE_UDP_PORT: *udp_port
-      WWE_ALLOWED_NETWORKS: *networks
-      WWE_ACME_DOMAIN: *domain
-      WWE_ACME_EMAIL: *email
-      WWE_ACME_ACCEPT_TERMS: *accept_terms
-      WWE_ACME_CACHE: /data/acme
-      WWE_ACCESS_KEY_FILE: /data/access.key
-      WWE_GENERATE_ACCESS_KEY: "true"
-      WWE_STATE_FILE: /data/local-state.sqlite3
-      WWE_MATCHMAKING: "true"
-      WWE_CUSTOM_CONTENT: "true"
-      WWE_CONTENT_QUOTA_MIB: "256"
-      WWE_MAX_CONNECTIONS: "64"
-      WWE_ROOM_IDLE_SECONDS: "3600"
-      WWE_HTTP_RATE: "30"
-      WWE_UDP_RATE: "2000"
-      WWE_VERBOSE_LOG: "false"
-      GOMEMLIMIT: "192MiB"
-    ports:
-      - target: 8787
-        published: *https_port
-        host_ip: *publish_ip
-        protocol: tcp
-      - target: 8788
-        published: *udp_port
-        host_ip: *publish_ip
-        protocol: udp
-    volumes:
-      - state:/data
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=272m"]
     logging:
       driver: json-file
       options: {max-size: "5m", max-file: "3"}
-
 volumes:
   state:
