@@ -15,9 +15,10 @@ import (
 
 const ProtocolID = "wwe2k22-lab-v2"
 const TargetSHA = "cf1ed48636f425a80ceb22c64341b4e3b31c9677a4e2b1b1a08fe66c2e0e7766"
-const Release = "2026.10.28-server.2"
+const Release = "2026.10.28-server.3"
 
 type Config struct {
+	PublicAddress                                                       string
 	BindHost                                                            string
 	AdvertiseHost                                                       string
 	HTTPHost                                                            string
@@ -72,6 +73,9 @@ func validHTTPHost(s string) bool {
 	return true
 }
 func (c *Config) Validate() error {
+	if err := c.normalizePublicAddress(); err != nil {
+		return err
+	}
 	if _, e := validIPv4(c.BindHost, true); e != nil {
 		return e
 	}
@@ -98,16 +102,15 @@ func (c *Config) Validate() error {
 	}
 	if c.ACMEDomain != "" {
 		c.ACMEDomain = strings.ToLower(c.ACMEDomain)
-		_, ipError := netip.ParseAddr(c.ACMEDomain)
 		validEmail := true
 		if c.ACMEEmail != "" {
 			contact, emailError := mail.ParseAddress(c.ACMEEmail)
 			validEmail = emailError == nil && contact.Address == c.ACMEEmail
 		}
-		if !validHTTPHost(c.ACMEDomain) || !strings.Contains(c.ACMEDomain, ".") || ipError == nil ||
+		if !validAutomaticSubject(c.ACMEDomain) ||
 			!strings.EqualFold(c.HTTPHost, c.ACMEDomain) || c.TLSCert != "" ||
 			c.ACMECache == "" || !c.ACMEAcceptTerms || !validEmail {
-			return errors.New("automatic HTTPS requires one DNS domain matching http-host, a persistent cache and accepted ACME terms; optional email must be a plain address and PEM settings must be empty")
+			return errors.New("automatic HTTPS requires one public IPv4 or DNS domain matching http-host, a persistent cache and accepted ACME terms; optional email must be a plain address and PEM settings must be empty")
 		}
 		// ACME validation connects from the CA's changing public addresses.
 		// Restrictive source networks remain supported with operator PEM files.

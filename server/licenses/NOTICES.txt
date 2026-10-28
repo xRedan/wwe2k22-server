@@ -1,22 +1,28 @@
 Go server: third-party notices
 
 The executable includes the Go runtime (BSD-3-Clause, GO-LICENSE.txt).
-The following pinned modules are imported by the server. Their original notices are preserved beside this file.
+The following pinned runtime modules are imported by the server. Their original notices are preserved beside this file.
 
+- github.com/caddyserver/certmagic v0.25.6 (LICENSE.txt)
+- github.com/caddyserver/zerossl v0.1.6 (LICENSE)
 - github.com/dustin/go-humanize v1.1.0 (LICENSE)
+- github.com/klauspost/cpuid/v2 v2.4.0 (LICENSE)
+- github.com/libdns/libdns v1.1.1 (LICENSE)
 - github.com/mattn/go-isatty v0.0.24 (LICENSE)
+- github.com/mholt/acmez/v3 v3.1.7 (LICENSE)
+- github.com/miekg/dns v1.1.73 (AUTHORS, COPYRIGHT, LICENSE)
 - github.com/ncruces/go-strftime v1.1.0 (LICENSE)
 - github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec (LICENSE)
+- github.com/zeebo/blake3 v0.2.4 (LICENSE)
+- go.uber.org/multierr v1.11.0 (LICENSE.txt)
+- go.uber.org/zap v1.28.0 (LICENSE)
+- go.uber.org/zap/exp v0.3.0 (LICENSE)
+- golang.org/x/crypto v0.58.0 (LICENSE, PATENTS)
+- golang.org/x/net v0.60.0 (LICENSE, PATENTS)
 - golang.org/x/sys v0.49.0 (LICENSE, PATENTS)
 - golang.org/x/text v0.43.0 (LICENSE, PATENTS)
-- modernc.org/libc v1.79.0 (AUTHORS, LICENSE, LICENSE-3RD-PARTY.txt)
+- modernc.org/libc v1.79.0 (AUTHORS, LICENSE, LICENSE-3RD-PARTY.md)
 - modernc.org/mathutil v1.7.1 (AUTHORS, LICENSE)
 - modernc.org/memory v1.12.1 (AUTHORS, LICENSE, LICENSE-GO, LICENSE-LOGO, LICENSE-MMAP-GO)
-- modernc.org/sqlite v1.61.0 (AUTHORS, LICENSE, LICENSE-3RD-PARTY.txt, LICENSE-SQLITE, LICENSE-SQLITE_VEC)
+- modernc.org/sqlite v1.61.0 (AUTHORS, LICENSE, LICENSE-3RD-PARTY.md, LICENSE-SQLITE, LICENSE-SQLITE_VEC)
 - zombiezen.com/go/sqlite v1.4.2 (LICENSE)
-
-- golang.org/x/crypto v0.58.0 (see preserved notices)
-
-- golang.org/x/net v0.60.0 (see preserved notices)
-
-- github.com/google/uuid v1.6.0 (see preserved notices)

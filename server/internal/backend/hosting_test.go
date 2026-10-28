@@ -51,7 +51,7 @@ func TestAutomaticHTTPSSettings(t *testing.T) {
 		{"cache", func(c *Config) { c.ACMECache = "" }},
 		{"key-path", func(c *Config) { c.AccessKeyFile = "" }},
 		{"wildcard", func(c *Config) { c.ACMEDomain = "*.example.test" }},
-		{"ip", func(c *Config) { c.ACMEDomain = "203.0.113.1" }},
+		{"private-ip", func(c *Config) { c.ACMEDomain = "192.168.1.1" }},
 		{"url", func(c *Config) { c.ACMEDomain = "https://example.test" }},
 		{"single-label", func(c *Config) { c.ACMEDomain = "localhost" }},
 		{"different-host", func(c *Config) { c.HTTPHost = "other.example.test" }},
@@ -81,7 +81,7 @@ func TestAutomaticHTTPSWithoutContactEmail(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal("ACME contact email is optional", err)
 	}
-	if _, err := c.serverTLSConfig(); err != nil {
+	if _, err := ownedAutomaticTLS(t, c); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -214,7 +214,7 @@ func TestAutomaticHTTPSCacheAndProtocol(t *testing.T) {
 		}
 	}
 	// Even a cached unrelated SNI must fail without trying ACME.
-	cfg, err := c.serverTLSConfig()
+	cfg, err := ownedAutomaticTLS(t, c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,4 +226,16 @@ func TestAutomaticHTTPSCacheAndProtocol(t *testing.T) {
 			t.Fatal("unconfigured SNI accepted", name, err)
 		}
 	}
+}
+
+func ownedAutomaticTLS(t *testing.T, c Config) (*tls.Config, error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	m, err := newAutomaticHTTPS(ctx, c, 8787, nil)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	t.Cleanup(func() { cancel(); m.close() })
+	return m.TLSConfig(), nil
 }

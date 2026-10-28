@@ -7,11 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
-
-	"golang.org/x/crypto/acme"
-	"golang.org/x/crypto/acme/autocert"
 )
 
 // Preserve the cause for platform-specific sharing retries without including
@@ -70,29 +66,7 @@ func LoadAccessKey(path string, generate bool) (string, error) {
 	return readPublishedKey(path)
 }
 
-func (c Config) serverTLSConfig() (*tls.Config, error) {
-	if c.ACMEDomain != "" {
-		if err := os.MkdirAll(c.ACMECache, 0700); err != nil {
-			return nil, errors.New("cannot create certificate cache")
-		}
-		manager := &autocert.Manager{
-			Cache: autocert.DirCache(c.ACMECache), Prompt: autocert.AcceptTOS,
-			Email: c.ACMEEmail, HostPolicy: autocert.HostWhitelist(c.ACMEDomain),
-		}
-		return &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			// Keep the game's HTTP/1.1 wire contract; enable only the ACME
-			// TLS-ALPN challenge in addition. No HTTP proxy or port 80 needed.
-			NextProtos: []string{"http/1.1", acme.ALPNProto},
-			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				// Enforce the exact domain even for certificates already cached.
-				if !strings.EqualFold(hello.ServerName, c.ACMEDomain) {
-					return nil, errors.New("unconfigured TLS domain")
-				}
-				return manager.GetCertificate(hello)
-			},
-		}, nil
-	}
+func (c Config) manualTLSConfig() (*tls.Config, error) {
 	if c.TLSCert != "" {
 		cert, err := tls.LoadX509KeyPair(c.TLSCert, c.TLSKey)
 		if err != nil {

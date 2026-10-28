@@ -31,6 +31,7 @@ type refreshSession struct {
 	Expires time.Time
 }
 type Server struct {
+	automaticTLS                          *automaticHTTPS
 	lifeMu                                sync.Mutex
 	closing, serving                      bool
 	Config                                Config
@@ -69,6 +70,9 @@ type Server struct {
 }
 
 func NewServer(c Config) (s *Server, err error) {
+	if err = c.resolvePublicAddress(context.Background(), net.DefaultResolver.LookupNetIP); err != nil {
+		return nil, err
+	}
 	if err = c.Validate(); err != nil {
 		return nil, err
 	}
@@ -150,7 +154,13 @@ func NewServer(c Config) (s *Server, err error) {
 		s.catalog = wire.Catalog()
 	}
 	s.listener = &boundedListener{Listener: s.listener, slots: make(chan struct{}, c.MaxConnections), policy: policy}
-	tlsConfig, e := c.serverTLSConfig()
+	tlsConfig, e := c.manualTLSConfig()
+	if c.ACMEDomain != "" {
+		s.automaticTLS, e = newAutomaticHTTPS(ctx, c, ln.Addr().(*net.TCPAddr).Port, s.logger.event)
+		if e == nil {
+			tlsConfig = s.automaticTLS.TLSConfig()
+		}
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -202,6 +212,10 @@ func (s *Server) Serve() error {
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); s.serveUDP() }()
 	}
+	if s.automaticTLS != nil {
+		s.wg.Add(1)
+		go func() { defer s.wg.Done(); s.automaticTLS.manage(s.ctx) }()
+	}
 	s.lifeMu.Unlock()
 	e := s.http.Serve(s.listener)
 	if errors.Is(e, http.ErrServerClosed) || errors.Is(e, net.ErrClosed) {
@@ -232,6 +246,9 @@ func (s *Server) Close() {
 			s.listener.Close()
 		}
 		s.wg.Wait()
+		if s.automaticTLS != nil {
+			s.automaticTLS.close()
+		}
 		// Admission is closed before waiting, so no handler can be added here.
 		s.handlers.Wait()
 		s.content.close()

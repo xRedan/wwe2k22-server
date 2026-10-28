@@ -1,5 +1,19 @@
 [
   {
+    "module": "github.com/caddyserver/certmagic",
+    "version": "v0.25.6",
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "module": "github.com/caddyserver/zerossl",
+    "version": "v0.1.6",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
     "module": "github.com/dustin/go-humanize",
     "version": "v1.1.0",
     "license_files": [
@@ -7,8 +21,15 @@
     ]
   },
   {
-    "module": "github.com/google/uuid",
-    "version": "v1.6.0",
+    "module": "github.com/klauspost/cpuid/v2",
+    "version": "v2.4.0",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "github.com/libdns/libdns",
+    "version": "v1.1.1",
     "license_files": [
       "LICENSE"
     ]
@@ -17,6 +38,22 @@
     "module": "github.com/mattn/go-isatty",
     "version": "v0.0.24",
     "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "github.com/mholt/acmez/v3",
+    "version": "v3.1.7",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "github.com/miekg/dns",
+    "version": "v1.1.73",
+    "license_files": [
+      "AUTHORS",
+      "COPYRIGHT",
       "LICENSE"
     ]
   },
@@ -30,6 +67,34 @@
   {
     "module": "github.com/remyoudompheng/bigfft",
     "version": "v0.0.0-20230129092748-24d4a6f8daec",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "github.com/zeebo/blake3",
+    "version": "v0.2.4",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "go.uber.org/multierr",
+    "version": "v1.11.0",
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "module": "go.uber.org/zap",
+    "version": "v1.28.0",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "module": "go.uber.org/zap/exp",
+    "version": "v0.3.0",
     "license_files": [
       "LICENSE"
     ]
@@ -72,7 +137,7 @@
     "license_files": [
       "AUTHORS",
       "LICENSE",
-      "LICENSE-3RD-PARTY.txt"
+      "LICENSE-3RD-PARTY.md"
     ]
   },
   {
@@ -100,7 +165,7 @@
     "license_files": [
       "AUTHORS",
       "LICENSE",
-      "LICENSE-3RD-PARTY.txt",
+      "LICENSE-3RD-PARTY.md",
       "LICENSE-SQLITE",
       "LICENSE-SQLITE_VEC"
     ]
