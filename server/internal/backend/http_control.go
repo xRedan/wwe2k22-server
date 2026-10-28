@@ -254,6 +254,11 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request) {
 	s.dir.mu.Unlock()
 	s.mu.Unlock()
 	if e != nil {
+		if rejected, ok := e.(*requestError); ok {
+			// Directory reasons are fixed protocol labels. Do not log fields,
+			// session keys, player identities or request bodies.
+			s.logger.event(map[string]any{"event": "matchmaking_rejected", "operation": op, "reason": rejected.Message})
+		}
 		code := statusCode(e, 400)
 		msg := "Invalid local matchmaking request"
 		if code == 404 {

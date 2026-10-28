@@ -264,12 +264,14 @@ func TestHTTPNativeLobbyAndUDPRelay(t *testing.T) {
 	raw, _ = wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 3, Flags: 0x1000, Payload: ack})
 	host.WriteToUDP(raw, s.UDPAddress().(*net.UDPAddr))
 	buf := make([]byte, 100)
-	if _, _, e := peer.ReadFromUDP(buf); e != nil {
-		t.Fatal("remote ACK", e)
+	// Reliability is terminated by the relay: acknowledge this client's
+	// uplink without leaking its receive ACK into another client's stream.
+	if _, _, e := host.ReadFromUDP(buf); e != nil {
+		t.Fatal("relay uplink ACK", e)
 	}
-	host.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
-	if _, _, e := host.ReadFromUDP(buf); e == nil {
-		t.Fatal("ACK reflected to sender")
+	peer.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+	if _, _, e := peer.ReadFromUDP(buf); e == nil {
+		t.Fatal("client ACK forwarded into another stream")
 	}
 }
 func put64(b []byte, n uint64) {

@@ -50,6 +50,7 @@ type group struct {
 	Address           netip.AddrPort
 	Closed            bool
 	Active            time.Time
+	Reliable          *reliablePeer
 }
 type room struct {
 	ID, Owner, Revision uint64
@@ -75,7 +76,7 @@ type directory struct {
 func newDirectory(e wire.Endpoint) *directory {
 	var seed [8]byte
 	_, _ = io.ReadFull(rand.Reader, seed[:])
-	return &directory{Endpoint: e, Rooms: map[uint64]*room{}, Groups: map[uint64]*group{}, Sessions: map[uint64]*group{}, Addresses: map[netip.AddrPort]*group{}, Next: binary.LittleEndian.Uint64(seed[:])&((1<<60)-1) | 1, Random: rand.Reader, Publications: map[uint64]*publication{}, UDP: map[string]uint64{"received": 0, "opens": 0, "forwarded": 0, "policy_dropped": 0, "invalid": 0, "send_errors": 0}}
+	return &directory{Endpoint: e, Rooms: map[uint64]*room{}, Groups: map[uint64]*group{}, Sessions: map[uint64]*group{}, Addresses: map[netip.AddrPort]*group{}, Next: binary.LittleEndian.Uint64(seed[:])&((1<<60)-1) | 1, Random: rand.Reader, Publications: map[uint64]*publication{}, UDP: map[string]uint64{"received": 0, "opens": 0, "forwarded": 0, "policy_dropped": 0, "invalid": 0, "send_errors": 0, "reliable_accepted": 0, "reliable_retransmitted": 0}}
 }
 func groupOrder(r *room) []*group {
 	out := make([]*group, 0, len(r.Groups))

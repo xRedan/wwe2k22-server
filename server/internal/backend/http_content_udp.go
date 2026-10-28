@@ -140,8 +140,9 @@ type udpReply struct {
 	Address netip.AddrPort
 }
 
-// The caller holds d.mu. Replies borrow packet, and must be sent before reuse.
+// The caller holds d.mu. Transparent replies borrow packet; send replies before reuse.
 func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, packet []byte, out []udpReply) ([]udpReply, error) {
+	clear(out)
 	out = out[:0]
 	d.UDP["received"]++
 	f, err := wire.DecodeUDP(raw)
@@ -216,9 +217,10 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 	g.Active = now
 	exclude := f.Flags == 0x1800 || wire.IsApplicationACK(f, g.ID)
 	if f.Flags == 0x800 {
-		for len(ids) > 0 {
-			id := binary.LittleEndian.Uint64(ids)
-			ids = ids[8:]
+		recipients := ids
+		for len(recipients) > 0 {
+			id := binary.LittleEndian.Uint64(recipients)
+			recipients = recipients[8:]
 			item := d.Groups[id]
 			if item == nil || item.Room != g.Room || !item.Address.IsValid() {
 				continue
@@ -239,6 +241,15 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 			if item.Address.IsValid() && (!exclude || item != g) {
 				out = append(out, udpReply{Address: item.Address})
 			}
+		}
+	}
+	if f.Kind == 3 {
+		parts, handled, err := reliableParts(payload, g.ID)
+		if err != nil {
+			return out[:0], err
+		}
+		if handled {
+			return d.reliableReplies(g, room, parts, f.Flags, ids, now, out)
 		}
 	}
 	if len(out) == 0 {
