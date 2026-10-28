@@ -71,6 +71,31 @@ def asset_path(identity):
     return '/ae70420fb2e24ec6a145023e0fa111f8/' + identity[:3] + '/' + identity[3:6] + '/' + identity + '.bin'
 
 
+
+def wait_for_server_port(process, log, timeout=30, redactions=()):
+    """Wait for the owned child, including slow first-launch scans on CI."""
+    if timeout <= 0:
+        raise ValueError('Startup timeout must be positive')
+    deadline = time.monotonic() + timeout
+    while True:
+        text = log.read_text(encoding='utf-8', errors='replace')
+        match = re.search(r'WWE 2K22 Go server:\s+http://127\.0\.0\.1:(\d+)', text)
+        code = process.poll()
+        if code is None and match and 0 < int(match[1]) <= 65535:
+            return int(match[1])
+        remaining = deadline - time.monotonic()
+        if code is not None or remaining <= 0:
+            for secret in redactions:
+                if secret:
+                    text = text.replace(secret, '[redacted]')
+            text = re.sub(r'(?i)\b[0-9a-f]{64}\b', '[redacted]', text)
+            diagnostic = text[-1600:].strip() or '(no output)'
+            if code is not None:
+                raise RuntimeError(f'Owned server child exited before startup (code {code}): {diagnostic}')
+            raise TimeoutError(f'Owned server child did not announce its port within {timeout}s: {diagnostic}')
+        time.sleep(min(.05, remaining))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', required=True, type=Path, help='Go server executable to test')
@@ -116,16 +141,7 @@ def main():
                  str(keyfile), '--log', '-'], cwd=temp, stdout=output, stderr=output,
                 env=env, creationflags=hidden)
             try:
-                port = None
-                for _ in range(120):
-                    match = re.search(r'WWE 2K22 Go server:\s+http://127\.0\.0\.1:(\d+)',
-                                      log.read_text(encoding='utf-8', errors='replace'))
-                    if match:
-                        port = int(match[1])
-                        break
-                    assert process.poll() is None, 'Owned server child exited early'
-                    time.sleep(.05)
-                assert port, 'Owned server child did not announce its ephemeral port'
+                port = wait_for_server_port(process, log, redactions=(key,))
 
                 def call(path, data=None, session=None, marker=False):
                     raw = json.dumps(data).encode() if isinstance(data, dict) else data
