@@ -17,9 +17,7 @@ def main(image):
     volume = name + '-state'
     try:
         docker('volume', 'create', volume)
-        docker('run', '--detach', '--name', name, '--read-only', '--cap-drop', 'ALL',
-               '--security-opt', 'no-new-privileges:true', '--pids-limit', '128',
-               '--memory', '512m', '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=272m',
+        docker('run', '--detach', '--name', name,
                '--mount', 'type=volume,src=' + volume + ',dst=/data',
                '--publish', '127.0.0.1::8787/tcp', '--publish', '127.0.0.1::8788/udp',
                '--env', 'WWE_BIND_HOST=0.0.0.0', '--env', 'WWE_ADVERTISE_HOST=127.0.0.1',
@@ -28,7 +26,7 @@ def main(image):
                '--env', 'WWE_GENERATE_ACCESS_KEY=true', image)
         inspected = json.loads(docker('inspect', name))[0]
         assert inspected['Config']['User'] == '10001:10001'
-        assert inspected['HostConfig']['ReadonlyRootfs']
+        assert not inspected['HostConfig']['ReadonlyRootfs']
         assert inspected['NetworkSettings']['Ports']['8788/udp']
         port = inspected['NetworkSettings']['Ports']['8787/tcp'][0]['HostPort']
         url = 'http://127.0.0.1:' + port
@@ -73,7 +71,7 @@ def main(image):
                 if attempt == 39:
                     raise
                 time.sleep(0.25)
-        print('Container smoke passed: non-root, read-only, TCP/UDP mappings, authentication, persistent key/state, restart.')
+        print('Container smoke passed: non-root, minimal Docker options, TCP/UDP mappings, authentication, persistent key/state, restart.')
     finally:
         # Only the randomly named resources created by this invocation are removed.
         subprocess.run(['docker', 'rm', '--force', name], check=False, capture_output=True, timeout=60)

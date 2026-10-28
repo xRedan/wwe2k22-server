@@ -67,7 +67,7 @@ jobs:
           tags: wwe2k22-owned-check:local
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Validate Compose and test the actual non-root read-only container
+      - name: Validate Compose and test the minimal non-root container
         shell: bash
         run: |
           set -euo pipefail
@@ -117,7 +117,7 @@ jobs:
               source.replace(marker, os.environ['IMAGE'] + '@' + os.environ['DIGEST']), encoding='utf-8')
           PY
           docker compose -f deployment/compose.yaml config --quiet
-          echo "Published $IMAGE@$DIGEST. Download the standalone-compose artifact and edit x-settings." >> "$GITHUB_STEP_SUMMARY"
+          echo "Published $IMAGE@$DIGEST. Download standalone-compose and set the IP, domain and UDP port." >> "$GITHUB_STEP_SUMMARY"
       - name: Upload standalone Compose
         if: github.event_name == 'release' || inputs.publish
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

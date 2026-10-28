@@ -75,6 +75,17 @@ func TestAutomaticHTTPSSettings(t *testing.T) {
 	}
 }
 
+func TestAutomaticHTTPSWithoutContactEmail(t *testing.T) {
+	c := hostedConfig(t)
+	c.ACMEEmail = ""
+	if err := c.Validate(); err != nil {
+		t.Fatal("ACME contact email is optional", err)
+	}
+	if _, err := c.serverTLSConfig(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGeneratedKeyConcurrentAndPersistent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "access.key")
 	const count = 32

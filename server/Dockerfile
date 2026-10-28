@@ -10,14 +10,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN mkdir -p /runtime/data /runtime/tmp && chmod 1777 /runtime/tmp
 COPY licenses/ /runtime/licenses/
 FROM scratch
-LABEL org.opencontainers.image.title="WWE 2K22 private server (Go)" org.opencontainers.image.version="2026.10.28-server.1"
+LABEL org.opencontainers.image.title="WWE 2K22 private server (Go)" org.opencontainers.image.version="2026.10.28-server.2"
 COPY --from=build --chown=10001:10001 /runtime/ /
 # ACME contacts its certificate authority over verified HTTPS.
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 10001:10001
-# Compose reserves 272 MiB for tmpfs under a 512 MiB container ceiling.
-# Keep 48 MiB of headroom beyond Go-managed memory and that maximum tmpfs usage.
-# GOMEMLIMIT is a soft runtime budget, not a hard RSS limit.
+# Soft default budget for Go-managed memory, independent of host/container limits.
+# Temporary uploads use /tmp; the operator may override this budget or mount tmpfs.
 ENV WWE_BIND_HOST=0.0.0.0 WWE_STATE_FILE=/data/local-state.sqlite3 WWE_MATCHMAKING=true WWE_CUSTOM_CONTENT=true TMPDIR=/tmp GOMEMLIMIT=192MiB
 EXPOSE 8787/tcp 8788/udp
 VOLUME ["/data"]

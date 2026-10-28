@@ -21,7 +21,7 @@ class ContainerSmokeTests(unittest.TestCase):
                 port = '32002' if change_port and state['restarted'] else '32001'
                 return json.dumps([{
                     'Config': {'User': '10001:10001'},
-                    'HostConfig': {'ReadonlyRootfs': True},
+                    'HostConfig': {'ReadonlyRootfs': False},
                     'NetworkSettings': {'Ports': {
                         '8787/tcp': [{'HostIp': '127.0.0.1', 'HostPort': port}],
                         '8788/udp': [{'HostIp': '127.0.0.1', 'HostPort': '32003'}],

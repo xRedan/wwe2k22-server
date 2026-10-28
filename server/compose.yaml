@@ -1,27 +1,16 @@
-# Edit only the four values under environment, then: docker compose up -d
 services:
   wwe2k22:
-    image: ghcr.io/replace-me/wwe2k22-server-client:2026.10.28-server.1
+    image: ghcr.io/replace-me/wwe2k22-server-client:2026.10.28-server.2
     restart: unless-stopped
-    init: true
     environment:
       WWE_DEPLOYMENT: public
-      WWE_ADVERTISE_HOST: "203.0.113.10"
-      WWE_ACME_DOMAIN: "wwe.example.com"
-      WWE_ACME_EMAIL: "admin@example.com"
-      # Set true after accepting https://letsencrypt.org/repository/
-      WWE_ACME_ACCEPT_TERMS: "false"
-    ports: ["443:8787/tcp", "8788:8788/udp"]
+      WWE_ADVERTISE_HOST: "203.0.113.10"        # IP pubblico del VPS
+      WWE_ACME_DOMAIN: "wwe.example.com"        # Dominio che punta al VPS
+      WWE_ADVERTISE_UDP_PORT: "8788"            # Stessa porta UDP esposta sotto
+      WWE_ACME_ACCEPT_TERMS: "false"            # true dopo aver accettato i termini Let's Encrypt
+    ports:
+      - "443:8787/tcp"                          # HTTPS: mantieni 443 con il certificato automatico
+      - "8788:8788/udp"                         # Porta esterna:porta interna; cambia solo la prima
     volumes: ["state:/data"]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    mem_limit: 512m
-    pids_limit: 128
-    stop_grace_period: 35s
-    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=272m"]
-    logging:
-      driver: json-file
-      options: {max-size: "5m", max-file: "3"}
 volumes:
   state:
