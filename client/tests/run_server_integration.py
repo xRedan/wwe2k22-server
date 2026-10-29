@@ -188,7 +188,8 @@ def main():
                 query = {'ContentIDs': list(expected)}
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     waiting = pool.submit(obj, '/api/ContentMetaGet', query, accounts[1]['SessionID'], True)
-                    time.sleep(.05)
+                    # Exercise the former three-second metadata expiry with the real native uploader.
+                    time.sleep(3.25)
                     assert not waiting.done(), 'Missing dependency query did not wait'
                     for account, paths in zip(accounts, batches):
                         upload(account, paths)
@@ -226,7 +227,7 @@ def main():
                 status = obj('/status')
                 assert status['custom_content']['assets'] == 6
                 results = dict(passed=True, native_to_go_exact_images=6, storage_kinds=list(TAGS),
-                               both_accounts_preview_and_main_exact=True, metadata_wait_resolved=True,
+                               both_accounts_preview_and_main_exact=True, metadata_wait_resolved=True, wan_metadata_wait_seconds=3.25,
                                same_size_edit_rotated=True, shared_duplicate_idempotent=True,
                                other_owner_409_isolated=True, assets=6, host_sha256=host_sha,
                                dll_sha256=dll_sha, server_sync_counts=status['native_image_sync'],

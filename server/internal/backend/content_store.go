@@ -154,7 +154,11 @@ func (s *contentStore) summary() (map[string]any, error) {
 	if e != nil {
 		return nil, storageError(e)
 	}
-	return map[string]any{"contents": a[0][0], "assets": b[0][0], "bytes": b[0][1], "quota_bytes": s.quota, "max_asset_bytes": maxAsset}, nil
+	images, e := s.rows("SELECT COUNT(*) FROM content WHERE json_extract(metadata,'$._NativeDependency')=1")
+	if e != nil {
+		return nil, storageError(e)
+	}
+	return map[string]any{"contents": a[0][0], "assets": b[0][0], "bytes": b[0][1], "native_images": images[0][0], "quota_bytes": s.quota, "max_asset_bytes": maxAsset}, nil
 }
 func (s *contentStore) quotaCheck(added int64, count int) error {
 	a, e := s.rows("SELECT COALESCE(SUM(size),0) FROM assets")

@@ -1,6 +1,6 @@
 services:
   wwe2k22:
-    image: ghcr.io/replace-me/wwe2k22-server-client:2026.10.28-server.4
+    image: ghcr.io/replace-me/wwe2k22-server-client:2026.10.29-server.1
     restart: unless-stopped
     environment:
       WWE_DEPLOYMENT: public

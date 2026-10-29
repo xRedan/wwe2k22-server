@@ -58,7 +58,7 @@ type Server struct {
 	cancel                                context.CancelFunc
 	wg, handlers                          sync.WaitGroup
 	closeOnce                             sync.Once
-	uploads, downloads                    chan struct{}
+	uploads, downloads, contentWaiters    chan struct{}
 	responses, unsupported, storageErrors atomic.Uint64
 	logger                                *eventLogger
 	imageImport                           map[string]any
@@ -67,6 +67,8 @@ type Server struct {
 	imageWaiters                          int
 	imageCreated, imageUpdated            atomic.Uint64
 	imageUnchanged                        atomic.Uint64
+	imageWaitTimeouts, imageWaitCapacity  atomic.Uint64
+	contentDownloads                      atomic.Uint64
 }
 
 func NewServer(c Config) (s *Server, err error) {
@@ -89,7 +91,7 @@ func NewServer(c Config) (s *Server, err error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s = &Server{Config: c, state: state, key: key, policy: policy, ctx: ctx, cancel: cancel, started: time.Now(), rest: map[string]restSession{}, pegasus: map[uint64]time.Time{}, access: map[string]time.Time{}, refresh: map[string]refreshSession{}, uploads: make(chan struct{}, 1), downloads: make(chan struct{}, 4), logger: newEventLogger(c.LogFile, c.VerboseLog)}
+	s = &Server{Config: c, state: state, key: key, policy: policy, ctx: ctx, cancel: cancel, started: time.Now(), rest: map[string]restSession{}, pegasus: map[uint64]time.Time{}, access: map[string]time.Time{}, refresh: map[string]refreshSession{}, uploads: make(chan struct{}, 1), downloads: make(chan struct{}, 4), contentWaiters: make(chan struct{}, min(16, c.MaxConnections/4)), logger: newEventLogger(c.LogFile, c.VerboseLog)}
 	owned := s
 	defer func() {
 		if err != nil {
@@ -339,7 +341,8 @@ func (s *Server) status() (map[string]any, error) {
 		out["custom_content"] = v
 	}
 	out["capabilities"].(map[string]any)["native_image_sync"] = s.content != nil
-	out["native_image_sync"] = map[string]uint64{"created": s.imageCreated.Load(), "updated": s.imageUpdated.Load(), "unchanged": s.imageUnchanged.Load()}
+	out["native_image_sync"] = map[string]uint64{"created": s.imageCreated.Load(), "updated": s.imageUpdated.Load(), "unchanged": s.imageUnchanged.Load(), "metadata_timeouts": s.imageWaitTimeouts.Load(), "metadata_capacity_misses": s.imageWaitCapacity.Load()}
+	out["content_transfers"] = map[string]uint64{"uploads_active": uint64(len(s.uploads)), "downloads_active": uint64(len(s.downloads)), "queued": uint64(len(s.contentWaiters)), "completed_downloads": s.contentDownloads.Load()}
 	if s.imageImport != nil {
 		out["native_image_import"] = s.imageImport
 	}

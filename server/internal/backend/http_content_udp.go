@@ -47,13 +47,11 @@ func (s *Server) nativeContent(w http.ResponseWriter, r *http.Request) {
 	var data map[string]any
 	var files map[string]binaryPart
 	if op == "ContentUpload" {
-		select {
-		case s.uploads <- struct{}{}:
-			defer func() { <-s.uploads }()
-		default:
-			s.reply(w, r, 503, errorJSON("A content transfer is already active; retry later"))
+		if e := s.acquireContentTransfer(r, s.uploads); e != nil {
+			s.reply(w, r, statusCode(e, 503), errorJSON(e.Error()))
 			return
 		}
+		defer func() { <-s.uploads }()
 		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(120 * time.Second))
 		types := r.Header.Values("Content-Type")
 		if len(types) != 1 {
@@ -111,11 +109,15 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		s.reply(w, r, 401, errorJSON("A local REST session is required"))
 		return
 	}
-	select {
-	case s.downloads <- struct{}{}:
-		defer func() { <-s.downloads }()
-	default:
-		s.reply(w, r, 503, errorJSON("A content transfer is already active; retry later"))
+	if e := s.acquireContentTransfer(r, s.downloads); e != nil {
+		s.reply(w, r, statusCode(e, 503), errorJSON(e.Error()))
+		return
+	}
+	defer func() { <-s.downloads }()
+	// A session can expire while its request waits for a transfer lane.
+	uid, e = s.restUser(r, false)
+	if e != nil || (len(r.Header.Values("X-Sessionid")) > 0 && uid == "") {
+		s.reply(w, r, 401, errorJSON("A local REST session is required"))
 		return
 	}
 	snapshot, e := s.content.snapshot(id, uid)
@@ -132,7 +134,9 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(120 * time.Second))
 	s.responses.Add(1)
 	w.WriteHeader(200)
-	_, _ = io.CopyBuffer(w, snapshot, make([]byte, 64*1024))
+	if n, e := io.CopyBuffer(w, snapshot, make([]byte, 64*1024)); e == nil && n == snapshot.size {
+		s.contentDownloads.Add(1)
+	}
 }
 
 type udpReply struct {

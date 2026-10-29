@@ -100,7 +100,13 @@ func TestImageSyncFrameAndAuthentication(t *testing.T) {
 	}
 	delete(key, "Content-Encoding")
 	s.uploads <- struct{}{}
+	for i := 0; i < cap(s.contentWaiters); i++ {
+		s.contentWaiters <- struct{}{}
+	}
 	code, _, _ = request(t, s, "/lab/images/sync", valid, key)
+	for i := 0; i < cap(s.contentWaiters); i++ {
+		<-s.contentWaiters
+	}
 	<-s.uploads
 	if code != 503 {
 		t.Fatal(code)
@@ -287,7 +293,7 @@ func TestImageMetadataWaitNotificationCancellationAndBound(t *testing.T) {
 		t.Fatal("request cancellation", e)
 	}
 	s.imageMu.Lock()
-	s.imageWaiters = 16
+	s.imageWaiters = maxImageWaiters
 	s.imageMu.Unlock()
 	start = time.Now()
 	if _, e := s.nativeContentHandle(r.Clone(context.Background()), "ContentMetaGet", owner, missing, nil); e != nil || time.Since(start) > time.Second {
@@ -308,8 +314,8 @@ func TestImageMetadataWaitNotificationCancellationAndBound(t *testing.T) {
 	// Exercise the real deadline without relying on notifications or shutdown.
 	s.ctx = context.Background()
 	start = time.Now()
-	response, e := s.nativeContentHandle(r.Clone(context.Background()), "ContentMetaGet", owner, missing, nil)
-	if e != nil || len(response["Results"].([]any)) != 0 || time.Since(start) < 2800*time.Millisecond || time.Since(start) > 4*time.Second {
+	response, e := s.waitNativeImages(r.Clone(context.Background()), owner, missing, nil, 100*time.Millisecond)
+	if e != nil || len(response["Results"].([]any)) != 0 || time.Since(start) < 80*time.Millisecond || time.Since(start) > time.Second {
 		t.Fatal("deadline", e, time.Since(start))
 	}
 }

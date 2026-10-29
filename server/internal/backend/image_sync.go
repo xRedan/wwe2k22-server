@@ -11,8 +11,11 @@ import (
 )
 
 // Native dependency queries opt in explicitly, so ordinary metadata misses keep
-// their established immediate response. At most 16 requests can wait, with one
-// shared notification channel and a single 3-second deadline per request.
+// their established immediate response. The bounded wait also covers slow WAN
+// uploads; notifications never extend the original per-request deadline.
+const nativeImageWait = 20 * time.Second
+const maxImageWaiters = 32
+
 func (s *Server) imageNotification() <-chan struct{} {
 	s.imageMu.Lock()
 	defer s.imageMu.Unlock()
@@ -36,20 +39,30 @@ func (s *Server) nativeContentHandle(r *http.Request, op, uid string, data map[s
 	if op != "ContentMetaGet" || len(values) != 1 || values[0] != "1" {
 		return s.content.handle(op, uid, data, files)
 	}
+	return s.waitNativeImages(r, uid, data, files, nativeImageWait)
+}
+
+func (s *Server) waitNativeImages(r *http.Request, uid string, data map[string]any, files map[string]binaryPart, budget time.Duration) (map[string]any, error) {
+	const op = "ContentMetaGet"
 	changed := s.imageNotification()
 	response, e := s.content.handle(op, uid, data, files)
 	if e != nil || len(response["Results"].([]any)) != 0 {
 		return response, e
 	}
 	s.imageMu.Lock()
-	if s.imageWaiters >= 16 {
+	limit := maxImageWaiters
+	if s.Config.MaxConnections > 0 {
+		limit = min(limit, s.Config.MaxConnections/2)
+	}
+	if s.imageWaiters >= limit {
+		s.imageWaitCapacity.Add(1)
 		s.imageMu.Unlock()
 		return response, nil
 	}
 	s.imageWaiters++
 	s.imageMu.Unlock()
 	defer func() { s.imageMu.Lock(); s.imageWaiters--; s.imageMu.Unlock() }()
-	timer := time.NewTimer(3 * time.Second)
+	timer := time.NewTimer(budget)
 	defer timer.Stop()
 	for {
 		select {
@@ -60,7 +73,11 @@ func (s *Server) nativeContentHandle(r *http.Request, op, uid string, data map[s
 		case <-timer.C:
 			// Other native content writers need not emit image notifications.
 			// Re-read once so a commit near the deadline is still observable.
-			return s.content.handle(op, uid, data, files)
+			response, e = s.content.handle(op, uid, data, files)
+			if e == nil && len(response["Results"].([]any)) == 0 {
+				s.imageWaitTimeouts.Add(1)
+			}
+			return response, e
 		case <-changed:
 			// Subscribe before reading to avoid missing a commit during the query.
 			changed = s.imageNotification()
@@ -220,13 +237,11 @@ func (s *Server) imageSync(w http.ResponseWriter, r *http.Request) {
 		s.reply(w, r, 415, errorJSON("Native images require identity encoding"))
 		return
 	}
-	select {
-	case s.uploads <- struct{}{}:
-		defer func() { <-s.uploads }()
-	default:
-		s.reply(w, r, 503, errorJSON("A content transfer is already active; retry later"))
+	if e := s.acquireContentTransfer(r, s.uploads); e != nil {
+		s.reply(w, r, statusCode(e, 503), errorJSON(e.Error()))
 		return
 	}
+	defer func() { <-s.uploads }()
 	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(120 * time.Second))
 	raw, e := body(r, 44, imageMax+44)
 	var response map[string]any
