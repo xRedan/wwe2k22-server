@@ -247,13 +247,16 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 			}
 		}
 	}
-	if f.Kind == 3 {
+	if f.Kind == 3 || f.Kind == 4 {
 		parts, handled, err := reliableParts(payload, g.ID)
 		if err != nil {
 			return out[:0], err
 		}
 		if handled {
-			return d.reliableReplies(g, room, parts, f.Flags, ids, now, out)
+			if f.Kind == 4 {
+				d.UDP["reliable_type4_frames"]++
+			}
+			return d.reliableReplies(g, room, parts, f.Kind, f.Flags, ids, now, out)
 		}
 	}
 	if len(out) == 0 {

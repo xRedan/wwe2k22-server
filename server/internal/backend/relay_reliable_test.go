@@ -58,7 +58,12 @@ func reliableTestRoom(t *testing.T, count int) (*directory, []*group, time.Time)
 
 func reliableTestSend(t *testing.T, d *directory, from *group, payload []byte, now time.Time) []udpReply {
 	t.Helper()
-	raw, err := wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 3, Flags: 0x1800, Payload: payload})
+	// Native join/state data uses extended frames; ACK-only traffic is ordinary.
+	kind := uint8(3)
+	if len(payload) >= 8 && binary.LittleEndian.Uint32(payload[4:]) == reliableData {
+		kind = 4
+	}
+	raw, err := wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: kind, Flags: 0x1800, Payload: payload})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +488,7 @@ func testHTTPPlayersAndReliableUDP(t *testing.T, count int) {
 	for round := 0; round < rounds; round++ {
 		for _, c := range connections {
 			c.peer.SetDeadline(time.Now().Add(3 * time.Second))
-			raw, _ = wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 3, Flags: 0x1800, Payload: reliableTestRecord(c.id, uint16(round), []byte{byte(round), byte(round >> 8)})})
+			raw, _ = wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 4, Flags: 0x1800, Payload: reliableTestRecord(c.id, uint16(round), []byte{byte(round), byte(round >> 8)})})
 			if _, err := c.peer.WriteToUDP(raw, s.UDPAddress().(*net.UDPAddr)); err != nil {
 				t.Fatal(err)
 			}

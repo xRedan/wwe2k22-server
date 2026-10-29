@@ -29,13 +29,15 @@ type reliablePeer struct {
 	ackNeeded                bool
 }
 type reliableInput struct {
-	record  []byte
-	targets []uint64
+	record   []byte
+	targets  []uint64
+	extended bool
 }
 type reliableDelivery struct {
 	record   []byte
 	sequence uint16
 	sent     time.Time
+	extended bool
 }
 type reliablePart struct {
 	record  []byte
@@ -171,7 +173,7 @@ func (d *directory) pumpReliable(r *room) {
 					continue
 				}
 				q := relayState(target)
-				q.outgoing = append(q.outgoing, reliableDelivery{record: input.record, sequence: q.next})
+				q.outgoing = append(q.outgoing, reliableDelivery{record: input.record, sequence: q.next, extended: input.extended})
 				q.next++
 			}
 			p.incoming[index] = nil
@@ -206,11 +208,12 @@ func (d *directory) flushReliable(g *group, now time.Time, out []udpReply) []udp
 		return out
 	}
 	var frame []byte
+	frameKind := uint8(3)
 	appendFrame := func() {
 		if len(frame) <= 4 {
 			return
 		}
-		binary.LittleEndian.PutUint32(frame, uint32(d.Endpoint.Tag)<<16|3<<13|uint32(len(frame)))
+		binary.LittleEndian.PutUint32(frame, uint32(d.Endpoint.Tag)<<16|uint32(frameKind)<<13|uint32(len(frame)))
 		out = append(out, udpReply{Data: frame, Address: g.Address})
 		d.UDP["forwarded"]++
 		frame = nil
@@ -233,10 +236,16 @@ func (d *directory) flushReliable(g *group, now time.Time, out []udpReply) []udp
 		if emitted == 5 {
 			break
 		}
-		if len(frame)+len(item.record) > wire.MaxDatagram {
+		kind := uint8(3)
+		if item.extended {
+			kind = 4
+		}
+		// ACKs and mixed ordinary/extended data keep their native frame type.
+		if len(frame)+len(item.record) > wire.MaxDatagram || (frame != nil && frameKind != kind) {
 			appendFrame()
 		}
 		if frame == nil {
+			frameKind = kind
 			frame = make([]byte, 4, wire.MaxDatagram)
 		}
 		offset := len(frame)
@@ -254,7 +263,7 @@ func (d *directory) flushReliable(g *group, now time.Time, out []udpReply) []udp
 	return out
 }
 
-func (d *directory) reliableReplies(g *group, r *room, parts []reliablePart, flags uint16, ids []byte, now time.Time, out []udpReply) ([]udpReply, error) {
+func (d *directory) reliableReplies(g *group, r *room, parts []reliablePart, kind uint8, flags uint16, ids []byte, now time.Time, out []udpReply) ([]udpReply, error) {
 	p := relayState(g)
 	var targets []uint64
 	var opaque []byte
@@ -284,13 +293,13 @@ func (d *directory) reliableReplies(g *group, r *room, parts []reliablePart, fla
 			if targets == nil {
 				targets = d.reliableTargets(r, g, flags, ids)
 			}
-			p.incoming[seq&63] = &reliableInput{record: bytes.Clone(part.record), targets: targets}
+			p.incoming[seq&63] = &reliableInput{record: bytes.Clone(part.record), targets: targets, extended: kind == 4}
 		default:
 			opaque = append(opaque, part.record...)
 		}
 	}
 	if len(opaque) != 0 {
-		raw, err := wire.EncodeUDP(wire.Datagram{Namespace: d.Endpoint.Tag, Kind: 3, Payload: opaque})
+		raw, err := wire.EncodeUDP(wire.Datagram{Namespace: d.Endpoint.Tag, Kind: kind, Payload: opaque})
 		if err != nil {
 			return nil, err
 		}
