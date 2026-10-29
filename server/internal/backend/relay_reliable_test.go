@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 	"wwe2k22-server/internal/wire"
@@ -69,7 +70,7 @@ func reliableTestSend(t *testing.T, d *directory, from *group, payload []byte, n
 }
 
 func TestReliableRelayDistinctReceiveSequences(t *testing.T) {
-	for _, count := range []int{2, 3, 4, 6, 8} {
+	for _, count := range []int{2, 3, 4, 5, 6, 8} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			d, peers, now := reliableTestRoom(t, count)
 			seen := make(map[netip.AddrPort]map[uint16]uint64)
@@ -170,8 +171,8 @@ func TestReliableLateJoinStartsFreshReceiveStream(t *testing.T) {
 
 func TestReliableBackpressureAndSequenceWrap(t *testing.T) {
 	t.Run("bounded-backpressure", func(t *testing.T) {
-		d, peers, now := reliableTestRoom(t, 3)
-		slow := relayState(peers[2])
+		d, peers, now := reliableTestRoom(t, 6)
+		slow := relayState(peers[5])
 		record := reliableTestRecord(peers[0].ID, 0, []byte("old"))
 		for i := 0; i < reliableQueue; i++ {
 			slow.outgoing = append(slow.outgoing, reliableDelivery{record: record, sequence: uint16(i), sent: now})
@@ -182,7 +183,7 @@ func TestReliableBackpressureAndSequenceWrap(t *testing.T) {
 		if source.receiveHead != 0 || source.incoming[0] == nil || len(slow.outgoing) != reliableQueue {
 			t.Fatal("queue overflow or lost backpressure")
 		}
-		reliableTestSend(t, d, peers[2], reliableTestACK(peers[2].ID, reliableQueue, 0, 0), now)
+		reliableTestSend(t, d, peers[5], reliableTestACK(peers[5].ID, reliableQueue, 0, 0), now)
 		if source.receiveHead != 1 || source.incoming[0] != nil || len(slow.outgoing) != 1 {
 			t.Fatal("ACK did not resume the blocked multicast")
 		}
@@ -310,16 +311,33 @@ func (c *reliableNativeModel) acknowledgement(id uint64) []byte {
 }
 
 func TestReliableRelayLossReorderingAndDuplicates(t *testing.T) {
-	for _, count := range []int{2, 3, 8} {
-		t.Run(fmt.Sprint(count), func(t *testing.T) {
+	scenarios := []struct {
+		count int
+		seed  int64
+	}{
+		{2, 1729}, {3, 1729}, {4, 1729}, {5, 1729}, {6, 1}, {6, 1729}, {6, 42}, {6, 65535}, {8, 1729},
+	}
+	for seed := int64(100); seed < 132; seed++ {
+		scenarios = append(scenarios, struct {
+			count int
+			seed  int64
+		}{6, seed})
+	}
+	for _, scenario := range scenarios {
+		count := scenario.count
+		t.Run(fmt.Sprintf("%d/seed-%d", count, scenario.seed), func(t *testing.T) {
 			d, peers, start := reliableTestRoom(t, count)
 			const messages = 80
 			clients := make(map[netip.AddrPort]*reliableNativeModel)
 			for _, g := range peers {
 				clients[g.Address] = &reliableNativeModel{received: make(map[uint64][]uint16), uplink: make([]bool, messages)}
 			}
-			random := rand.New(rand.NewSource(1729))
-			var network []udpReply
+			random := rand.New(rand.NewSource(scenario.seed))
+			type delayed struct {
+				udpReply
+				due int
+			}
+			var network []delayed
 			for tick := 0; tick < 4000; tick++ {
 				now := start.Add(time.Duration(tick) * 10 * time.Millisecond)
 				for _, g := range peers {
@@ -332,9 +350,9 @@ func TestReliableRelayLossReorderingAndDuplicates(t *testing.T) {
 							if random.Intn(5) == 0 {
 								continue
 							}
-							network = append(network, reply)
+							network = append(network, delayed{reply, tick + random.Intn(16)})
 							if random.Intn(10) == 0 {
-								network = append(network, reply)
+								network = append(network, delayed{reply, tick + random.Intn(16)})
 							}
 						}
 					}
@@ -356,10 +374,16 @@ func TestReliableRelayLossReorderingAndDuplicates(t *testing.T) {
 					}
 				}
 				random.Shuffle(len(network), func(i, j int) { network[i], network[j] = network[j], network[i] })
+				waiting := network[:0]
 				for _, reply := range network {
+					if reply.due > tick {
+						waiting = append(waiting, reply)
+						continue
+					}
 					clients[reply.Address].receive(t, reply.Data)
 				}
-				network = network[:0]
+				clear(network[len(waiting):])
+				network = waiting
 				complete := true
 				for _, g := range peers {
 					client := clients[g.Address]
@@ -387,21 +411,30 @@ func TestReliableRelayLossReorderingAndDuplicates(t *testing.T) {
 	}
 }
 
-func TestHTTPThreePlayersAndReliableUDP(t *testing.T) {
+func TestHTTPMultiPlayerReliableUDP(t *testing.T) {
+	for _, count := range []int{3, 4, 5, 6, 8} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) { testHTTPPlayersAndReliableUDP(t, count) })
+	}
+}
+func testHTTPPlayersAndReliableUDP(t *testing.T, count int) {
 	s := testServer(t, false)
 	type connection struct {
 		peer  *net.UDPConn
 		id    uint64
 		model reliableNativeModel
 	}
+	rounds := 1
+	if count == 6 {
+		rounds = 200
+	}
 	var connections []connection
 	var roomID uint64
-	for i := 0; i < 3; i++ {
+	for i := 0; i < count; i++ {
 		key := loginNative(t, s)
 		fields := []wire.Field{wire.Num(userIDs, wire.Int64, uint64(76561198000000001+i))}
 		op := "create"
 		if i == 0 {
-			fields = append(fields, wire.Num(maxParticipants, wire.Int64, 3))
+			fields = append(fields, wire.Num(maxParticipants, wire.Int64, uint64(count)))
 		} else {
 			op = "search"
 			fields = append(fields, wire.Num(matchID, wire.Int64, roomID))
@@ -439,38 +472,44 @@ func TestHTTPThreePlayersAndReliableUDP(t *testing.T) {
 		if err != nil || ack.Kind != 1 {
 			t.Fatalf("peer %d UDP open: %v", i+1, err)
 		}
-		connections = append(connections, connection{peer: peer, id: id, model: reliableNativeModel{received: make(map[uint64][]uint16), uplink: make([]bool, 1)}})
+		connections = append(connections, connection{peer: peer, id: id, model: reliableNativeModel{received: make(map[uint64][]uint16), uplink: make([]bool, rounds)}})
 	}
-	fourth := loginNative(t, s)
-	raw, _ := wire.Encode(wire.Sorted([]wire.Field{wire.Num(userIDs, wire.Int64, 76561198000000004), wire.Num(matchID, wire.Int64, roomID)}))
-	code, _, _ := request(t, s, "/lab/vconline/match/search", raw, map[string]string{"S": fourth})
+	excess := loginNative(t, s)
+	raw, _ := wire.Encode(wire.Sorted([]wire.Field{wire.Num(userIDs, wire.Int64, uint64(76561198000000001+count)), wire.Num(matchID, wire.Int64, roomID)}))
+	code, _, _ := request(t, s, "/lab/vconline/match/search", raw, map[string]string{"S": excess})
 	if code != 400 {
-		t.Fatal("configured three-player capacity was bypassed")
+		t.Fatal("configured player capacity was bypassed")
 	}
-	for _, c := range connections {
-		raw, _ = wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 3, Flags: 0x1800, Payload: reliableTestRecord(c.id, 0, []byte{0, 0})})
-		if _, err := c.peer.WriteToUDP(raw, s.UDPAddress().(*net.UDPAddr)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for i := range connections {
-		c := &connections[i]
-		for !c.model.uplink[0] || len(c.model.received) < 2 {
-			buf := make([]byte, wire.MaxDatagram)
-			n, _, err := c.peer.ReadFromUDP(buf)
-			if err != nil {
-				t.Fatalf("peer %d did not receive both remote joins and its uplink ACK: %v", i+1, err)
+	for round := 0; round < rounds; round++ {
+		for _, c := range connections {
+			c.peer.SetDeadline(time.Now().Add(3 * time.Second))
+			raw, _ = wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 3, Flags: 0x1800, Payload: reliableTestRecord(c.id, uint16(round), []byte{byte(round), byte(round >> 8)})})
+			if _, err := c.peer.WriteToUDP(raw, s.UDPAddress().(*net.UDPAddr)); err != nil {
+				t.Fatal(err)
 			}
-			c.model.receive(t, buf[:n])
 		}
-		if c.model.head != 2 {
-			t.Fatalf("peer %d receive head = %d", i+1, c.model.head)
+		for i := range connections {
+			c := &connections[i]
+			c.peer.SetDeadline(time.Now().Add(3 * time.Second))
+			for !c.model.uplink[round] || int(c.model.head) < (count-1)*(round+1) {
+				buf := make([]byte, wire.MaxDatagram)
+				n, _, err := c.peer.ReadFromUDP(buf)
+				if err != nil {
+					t.Fatalf("peer %d did not receive all remote joins and its uplink ACK: %v", i+1, err)
+				}
+				c.model.receive(t, buf[:n])
+			}
+			if int(c.model.head) != (count-1)*(round+1) {
+				t.Fatalf("peer %d receive head = %d", i+1, c.model.head)
+			}
+			raw, _ = wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 3, Flags: 0x1000, Payload: c.model.acknowledgement(c.id)})
+			if _, err := c.peer.WriteToUDP(raw, s.UDPAddress().(*net.UDPAddr)); err != nil {
+				t.Fatal(err)
+			}
 		}
-		raw, _ = wire.EncodeUDP(wire.Datagram{Namespace: 1, Kind: 3, Flags: 0x1000, Payload: c.model.acknowledgement(c.id)})
-		if _, err := c.peer.WriteToUDP(raw, s.UDPAddress().(*net.UDPAddr)); err != nil {
-			t.Fatal(err)
-		}
+
 	}
+	t.Logf("%d real UDP peers: %d inputs, %d remote deliveries", count, count*rounds, count*(count-1)*rounds)
 }
 
 func TestReliableTargetedCompoundAndRoomIsolation(t *testing.T) {
@@ -534,4 +573,188 @@ func FuzzReliableApplicationEnvelope(f *testing.F) {
 			t.Fatal("decoder lost compound-envelope bytes")
 		}
 	})
+}
+
+func TestReliableSixPeersLongStreamAndReceiveWrap(t *testing.T) {
+	d, peers, start := reliableTestRoom(t, 6)
+	const messages = 14000
+	clients := make(map[netip.AddrPort]*reliableNativeModel)
+	for _, g := range peers {
+		clients[g.Address] = &reliableNativeModel{received: make(map[uint64][]uint16)}
+	}
+	deliver := func(replies []udpReply) {
+		for _, reply := range replies {
+			clients[reply.Address].receive(t, reply.Data)
+		}
+	}
+	for seq := 0; seq < messages; seq++ {
+		now := start.Add(time.Duration(seq) * 10 * time.Millisecond)
+		for _, from := range peers {
+			body := []byte{byte(seq), byte(seq >> 8)}
+			deliver(reliableTestSend(t, d, from, reliableTestRecord(from.ID, uint16(seq), body), now))
+		}
+		for _, from := range peers {
+			deliver(reliableTestSend(t, d, from, clients[from.Address].acknowledgement(from.ID), now))
+		}
+	}
+	for _, g := range peers {
+		client := clients[g.Address]
+		if client.head != uint16(messages*(len(peers)-1)) {
+			t.Fatal("six-peer receive stream failed to wrap")
+		}
+		for _, other := range peers {
+			if other != g && len(client.received[other.ID]) != messages {
+				t.Fatal("long stream lost a peer's messages")
+			}
+		}
+		if len(g.Reliable.outgoing) != 0 {
+			t.Fatal("acknowledged history retained after the long stream")
+		}
+	}
+	t.Logf("%d inputs, %d ordered deliveries; every receive sequence crossed 65535", messages*len(peers), messages*len(peers)*(len(peers)-1))
+}
+
+func TestReliableProgressiveAdmissionToSixPeers(t *testing.T) {
+	d, peers, start := reliableTestRoom(t, 6)
+	for _, g := range peers[2:] {
+		d.remove(g)
+	}
+	peers = peers[:2]
+	receiveHeads := make(map[netip.AddrPort]uint16)
+	sendHeads := make(map[uint64]uint16)
+	deliver := func(replies []udpReply) {
+		for _, reply := range replies {
+			frame, err := wire.DecodeUDP(reply.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for p := frame.Payload; len(p) >= 16; {
+				n := int(binary.LittleEndian.Uint16(p[2:]))
+				record := p[:n]
+				p = p[n:]
+				if binary.LittleEndian.Uint32(record[4:]) != 0x59a91251 {
+					continue
+				}
+				seq := binary.LittleEndian.Uint16(record[20:])
+				if seq != receiveHeads[reply.Address] {
+					t.Fatalf("progressive join receive sequence %d, want %d", seq, receiveHeads[reply.Address])
+				}
+				receiveHeads[reply.Address]++
+			}
+		}
+	}
+	send := func(from *group) {
+		seq := sendHeads[from.ID]
+		sendHeads[from.ID]++
+		deliver(reliableTestSend(t, d, from, reliableTestRecord(from.ID, seq, []byte("state")), start))
+		for _, g := range peers {
+			deliver(reliableTestSend(t, d, g, reliableTestACK(g.ID, receiveHeads[g.Address], 0, sendHeads[g.ID]), start))
+		}
+	}
+	for i := 0; i < 40; i++ {
+		send(peers[0])
+	}
+	for count := 3; count <= 6; count++ {
+		raw, err := d.response("search", uint64(count), wire.Fields{
+			userIDs: {wire.Num(userIDs, wire.Int64, uint64(1000+count))},
+			matchID: {wire.Num(matchID, wire.Int64, peers[0].Room)},
+		}, start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fields, err := wire.Decode(raw, true)
+		if err != nil || len(fields[groupIDs]) != count {
+			t.Fatal("new participant missing from membership snapshot")
+		}
+		g := d.Sessions[uint64(count)]
+		g.Address = netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(12000+count))
+		d.Addresses[g.Address] = g
+		peers = append(peers, g)
+		for _, from := range peers {
+			send(from)
+		}
+		if receiveHeads[g.Address] != uint16(count-1) {
+			t.Fatal("new peer inherited old receive history")
+		}
+	}
+}
+
+func TestHTTPConcurrentSixPlayerCapacity(t *testing.T) {
+	s := testServer(t, false)
+	owner := loginNative(t, s)
+	raw, _ := wire.Encode(wire.Sorted([]wire.Field{wire.Num(userIDs, wire.Int64, 1001), wire.Num(maxParticipants, wire.Int64, 6)}))
+	code, _, body := request(t, s, "/lab/vconline/match/create", raw, map[string]string{"S": owner})
+	if code != 200 {
+		t.Fatal("six-player room creation failed")
+	}
+	fields, err := wire.Decode(body, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := fields[matchID][0].N
+	keys := make([]string, 10)
+	for i := range keys {
+		keys[i] = loginNative(t, s)
+	}
+	codes := make(chan int, len(keys))
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for i, key := range keys {
+		workers.Add(1)
+		go func(i int, key string) {
+			defer workers.Done()
+			<-start
+			raw, _ := wire.Encode(wire.Sorted([]wire.Field{wire.Num(userIDs, wire.Int64, uint64(2001+i)), wire.Num(matchID, wire.Int64, id)}))
+			code, _, _ := request(t, s, "/lab/vconline/match/search", raw, map[string]string{"S": key})
+			codes <- code
+		}(i, key)
+	}
+	close(start)
+	workers.Wait()
+	close(codes)
+	accepted, rejected := 0, 0
+	for code := range codes {
+		switch code {
+		case 200:
+			accepted++
+		case 400:
+			rejected++
+		default:
+			t.Fatalf("unexpected concurrent admission status %d", code)
+		}
+	}
+	if accepted != 5 || rejected != 5 {
+		t.Fatalf("concurrent capacity: %d admitted, %d rejected", accepted, rejected)
+	}
+	s.dir.mu.Lock()
+	defer s.dir.mu.Unlock()
+	r := s.dir.Rooms[id]
+	if r == nil || len(r.Groups) != 6 || participants(r) != 6 {
+		t.Fatal("concurrent admissions exceeded or lost configured membership")
+	}
+}
+
+func TestReliableSixPeersDepartedReceiverReleasesBackpressure(t *testing.T) {
+	d, peers, now := reliableTestRoom(t, 6)
+	slow := relayState(peers[5])
+	record := reliableTestRecord(peers[0].ID, 0, []byte("old"))
+	for i := 0; i < reliableQueue; i++ {
+		slow.outgoing = append(slow.outgoing, reliableDelivery{record: record, sequence: uint16(i), sent: now})
+	}
+	slow.next, slow.sent = reliableQueue, reliableQueue
+	reliableTestSend(t, d, peers[0], reliableTestRecord(peers[0].ID, 0, []byte("resume")), now)
+	if peers[0].Reliable.receiveHead != 0 {
+		t.Fatal("slow receiver did not apply backpressure")
+	}
+	oldAddress := peers[5].Address
+	d.remove(peers[5])
+	replies := reliableTestSend(t, d, peers[1], reliableTestACK(peers[1].ID, 0, 0, 0), now)
+	if peers[0].Reliable.receiveHead != 1 {
+		t.Fatal("departed receiver kept the other five peers blocked")
+	}
+	for _, reply := range replies {
+		if reply.Address == oldAddress {
+			t.Fatal("removed endpoint still receives transport data")
+		}
+	}
 }
