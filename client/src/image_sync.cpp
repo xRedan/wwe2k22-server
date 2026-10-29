@@ -293,14 +293,30 @@ bool capture(void *record, const Descriptor &requested) noexcept {
   }
 }
 
+// 0x140415d00 matches UUID-keyed records by UUID and indexed records by
+// kind (+4), variant (+10) and slot (+12). Publish the canonical descriptor
+// returned by storage; an indexed request need not carry that UUID itself.
+bool resolve_image_descriptor(void *record, const Descriptor &requested,
+                              Descriptor &resolved) noexcept {
+  PreserveLastError error;
+  if (!guarded_read(record, resolved.data(), resolved.size()))
+    return false;
+  if (resolved[0] & 4)
+    return !memcmp(resolved.data() + 16, requested.data() + 16, 16);
+  return !memcmp(resolved.data() + 4, requested.data() + 4, 2) &&
+         !memcmp(resolved.data() + 10, requested.data() + 10, 2) &&
+         !memcmp(resolved.data() + 12, requested.data() + 12, 4);
+}
+
 void *image_hook(void *storage, const void *descriptor, int32_t fallback) {
   Descriptor requested{};
   DWORD before = GetLastError();
   bool valid = guarded_read(descriptor, requested.data(), requested.size());
   SetLastError(before);
   void *result = original_reader(storage, descriptor, fallback);
-  if (valid)
-    capture(result, requested);
+  Descriptor resolved{};
+  if (valid && resolve_image_descriptor(result, requested, resolved))
+    capture(result, resolved);
   return result;
 }
 bool digest(const Work &work, Digest &result) {

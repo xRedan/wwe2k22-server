@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
   std::string mode = argv[1];
   auto bytes = dds();
   setup(bytes);
-  if (mode == "file") {
+  if (mode == "file" || mode == "file-index") {
     if (argc < 5)
       return 14;
     std::wstring session_token;
@@ -140,10 +140,17 @@ int main(int argc, char **argv) {
       session_token += (wchar_t)(unsigned char)*ch;
     auto header = L"X-Sessionid: " + session_token + L"\r\n";
     headers(header.c_str(), (DWORD)-1);
+    if (mode == "file-index") {
+      auto install = (int(WINAPI *)(void *))GetProcAddress(
+          module, "WweNativeTestImageHook");
+      if (!install || !install((void *)&image_reader))
+        return 85;
+    }
     for (int i = 4; i < argc; ++i) {
       std::ifstream input_file(argv[i], std::ios::binary);
-      std::vector<unsigned char> frame((std::istreambuf_iterator<char>(input_file)),
-                                       std::istreambuf_iterator<char>());
+      std::vector<unsigned char> frame(
+          (std::istreambuf_iterator<char>(input_file)),
+          std::istreambuf_iterator<char>());
       uint32_t size = 0;
       if (frame.size() < 44)
         return 15;
@@ -154,9 +161,69 @@ int main(int argc, char **argv) {
       bytes.assign(frame.begin() + 44, frame.end());
       setup(bytes);
       memcpy(record.data(), frame.data() + 8, 32);
-      if (!capture(record.data(), record.data()) || !drain())
+      if (mode == "file-index") {
+        record[0] &= ~4;
+        uint32_t index = (uint32_t)(i - 4);
+        memcpy(record.data() + 12, &index, 4);
+        std::array<unsigned char, 32> requested{};
+        memcpy(requested.data(), record.data(), 32);
+        memset(requested.data() + 16, 0, 16);
+        volatile auto fn = &image_reader;
+        if (fn((void *)uintptr_t(0x12345678), requested.data(), 7) !=
+                record.data() ||
+            !drain())
+          return 86;
+      } else if (!capture(record.data(), record.data()) || !drain())
         return 17;
     }
+  } else if (mode == "hook-index") {
+    auto install =
+        (int(WINAPI *)(void *))GetProcAddress(module, "WweNativeTestImageHook");
+    if (!install || !install((void *)&image_reader))
+      return 80;
+    token(L'a');
+    volatile auto fn = &image_reader;
+    for (unsigned i = 0; i < 3; ++i) {
+      setup(bytes, 10 + i, i == 0 ? 0 : i == 1 ? 31 : 61);
+      record[0] =
+          0; // Native indexed record, with its canonical publication UUID.
+      uint16_t variant = 2;
+      uint32_t index = 101 + i;
+      memcpy(record.data() + 10, &variant, 2);
+      memcpy(record.data() + 12, &index, 4);
+      std::array<unsigned char, 32> requested{};
+      memcpy(requested.data(), record.data(), 32);
+      memset(requested.data() + 16, 0,
+             16); // An index lookup carries no requested UUID.
+      auto result = fn((void *)uintptr_t(0x12345678), requested.data(), 7);
+      if (result != record.data() || reader_calls != i + 1 ||
+          GetLastError() != 12345 || !drain())
+        return 81;
+    }
+    std::array<unsigned char, 32> requested{};
+    memcpy(requested.data(), record.data(), 32);
+    memset(requested.data() + 16, 0, 16);
+    for (auto offset : {4, 10, 12}) {
+      auto wrong = requested;
+      wrong[offset] ^= 1;
+      if (fn((void *)uintptr_t(0x12345678), wrong.data(), 7) != record.data() ||
+          !drain())
+        return 82;
+    }
+    // A UUID lookup must still reject a fallback with another image identity.
+    record[0] = 4;
+    auto wrong = requested;
+    wrong[0] = 4;
+    wrong[16] = 88;
+    if (fn((void *)uintptr_t(0x12345678), wrong.data(), 7) != record.data() ||
+        !drain())
+      return 83;
+    record[0] = 0;
+    memset(record.data() + 16, 0, 16);
+    if (fn((void *)uintptr_t(0x12345678), requested.data(), 7) !=
+            record.data() ||
+        !drain())
+      return 84;
   } else if (mode == "hook") {
     auto install = (int(WINAPI *)(void *))GetProcAddress(
         module, "WweNativeTestImageHook");

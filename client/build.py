@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / 'src'
 TARGET = 'cf1ed48636f425a80ceb22c64341b4e3b31c9677a4e2b1b1a08fe66c2e0e7766'
-VERSION = '2026.10.26-client.2'
+VERSION = '2026.10.29-client.1'
 RUNTIME_FILES = ('dinput8.dll', 'wwe2k22-private.ini')
 LICENSE_FILES = ('THIRD-PARTY-NOTICES.txt', 'MINHOOK-LICENSE.txt', 'LLVM-MINGW-LICENSE.txt')
 PACKAGE_FILES = RUNTIME_FILES + LICENSE_FILES + ('manifest.json',)

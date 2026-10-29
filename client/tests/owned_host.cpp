@@ -812,7 +812,7 @@ int main(int argc, char **argv) {
       return 30;
     Cdn fn = &cdn_fixture;
     volatile uint64_t result =
-        fn(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, "http://cdn.fixture.invalid/");
+        fn(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, "http://cdn.fixture.invalid:80/ae70420fb2e24ec6a145023e0fa111f8/?source=native#images");
     if (result != 489)
       return 31;
     const wchar_t *asset = L"/ae70420fb2e24ec6a145023e0fa111f8/abc/def/"

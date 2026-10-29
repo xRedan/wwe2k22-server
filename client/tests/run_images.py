@@ -127,7 +127,7 @@ def main():
     report = []
     try:
         for mode in ('malformed', 'bounds', 'queue', 'basic', 'stage', 'auth',
-                     'rotation', 'transient', 'redirect', 'permanent', 'hook',
+                     'rotation', 'transient', 'redirect', 'permanent', 'hook', 'hook-index',
                      'disabled', 'inflight', 'marker', 'coalesce',
                      'coalesce-budget', 'coalesce-typical', 'retry-cap',
                      'parallel', 'parallel-budget', 'burst', 'stop-race',
@@ -149,7 +149,7 @@ def main():
                 records = list(captures)
             count = {'basic': 5, 'stage': 1, 'auth': 2, 'rotation': 2,
                      'transient': 2, 'redirect': 1, 'permanent': 3,
-                     'hook': 1, 'inflight': 2, 'coalesce': 65,
+                     'hook': 1, 'hook-index': 3, 'inflight': 2, 'coalesce': 65,
                      'retry-cap': 16}.get(mode, 0)
             if mode.startswith('coalesce-') and 'race' in mode:
                 count = 2
@@ -157,6 +157,9 @@ def main():
             if mode == 'basic':
                 assert [struct.unpack_from('<H', frame, 12)[0] for frame, _ in records] == [0, 31, 61, 0, 0]
                 assert [frame[44 + 128] for frame, _ in records] == [0x51, 0x51, 0x51, 0x52, 0x51]
+            if mode == 'hook-index':
+                assert [frame[24] for frame, _ in records] == [10,11,12]
+                assert [struct.unpack_from('<H',frame,12)[0] for frame, _ in records] == [0,31,61]
             if mode == 'stage':
                 assert records[0][0][44 + 128] == 0x51
             if mode in ('auth', 'rotation', 'inflight'):

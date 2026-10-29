@@ -166,7 +166,7 @@ def main():
                     return json.loads(body)
 
                 def upload(account, paths):
-                    subprocess.run([str(host), 'file', str(port), account['SessionID'],
+                    subprocess.run([str(host), 'file-index', str(port), account['SessionID'],
                                     *map(str, paths)], cwd=native, env=env, check=True,
                                    capture_output=True, timeout=30, creationflags=hidden)
 
@@ -226,7 +226,7 @@ def main():
                 check_packet(packet, updated_image, 31)
                 status = obj('/status')
                 assert status['custom_content']['assets'] == 6
-                results = dict(passed=True, native_to_go_exact_images=6, storage_kinds=list(TAGS),
+                results = dict(passed=True, native_to_go_exact_images=6, native_indexed_hook_images=6, storage_kinds=list(TAGS),
                                both_accounts_preview_and_main_exact=True, metadata_wait_resolved=True, wan_metadata_wait_seconds=3.25,
                                same_size_edit_rotated=True, shared_duplicate_idempotent=True,
                                other_owner_409_isolated=True, assets=6, host_sha256=host_sha,

@@ -308,8 +308,9 @@ void learn_cdn(const std::string &url) {
     value.remove_prefix(8);
   else
     return;
-  if (!value.empty() && value.back() == '/')
-    value.remove_suffix(1);
+  // Native CDN settings can contain a base path, query or fragment.
+  // Only the validated authority participates in connection redirection.
+  value = value.substr(0, value.find_first_of("/?#"));
   auto colon = value.find(':');
   if (colon != value.npos) {
     auto port = value.substr(colon + 1);
