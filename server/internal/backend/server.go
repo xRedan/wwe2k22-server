@@ -151,6 +151,7 @@ func NewServer(c Config) (s *Server, err error) {
 			port = c.AdvertiseUDPPort
 		}
 		s.dir = newDirectory(wire.Endpoint{IP: netip.MustParseAddr(c.AdvertiseHost), Port: uint16(port), Tag: 1})
+		s.dir.notify = s.logger.event
 	}
 	if c.Matchmaking || c.Catalog {
 		s.catalog = wire.Catalog()
@@ -213,6 +214,22 @@ func (s *Server) Serve() error {
 	if s.udp != nil {
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); s.serveUDP() }()
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-s.ctx.Done():
+					return
+				case now := <-ticker.C:
+					s.dir.mu.Lock()
+					s.dir.relayWatch(now)
+					s.dir.mu.Unlock()
+				}
+			}
+		}()
 	}
 	if s.automaticTLS != nil {
 		s.wg.Add(1)
@@ -292,6 +309,7 @@ func (s *Server) maintenance(now time.Time) {
 		}
 	}
 	live := s.live(now)
+	summary := map[string]any{"responses": s.responses.Load(), "unsupported": s.unsupported.Load(), "storage_errors": s.storageErrors.Load()}
 	// Keep auth and directory expiry atomic, in the same lock order as publish.
 	if s.dir != nil {
 		d := s.dir
@@ -304,13 +322,22 @@ func (s *Server) maintenance(now time.Time) {
 			}
 		}
 		for _, g := range stale {
+			d.note("relay_member_expired", g, map[string]any{"idle_s": int(now.Sub(g.Active).Seconds()), "session_live": live[g.Session]})
 			d.remove(g)
 		}
 		d.expirePublic(live, now)
+		udp := map[string]uint64{}
+		for k, v := range d.UDP {
+			udp[k] = v
+		}
+		summary["udp"] = udp
+		if len(d.Rooms) != 0 {
+			summary["relay"] = d.relaySnapshot(now)
+		}
 		d.mu.Unlock()
 	}
 	s.mu.Unlock()
-	s.logger.event(map[string]any{"server_summary": map[string]any{"responses": s.responses.Load(), "unsupported": s.unsupported.Load(), "storage_errors": s.storageErrors.Load()}})
+	s.logger.event(map[string]any{"server_summary": summary})
 }
 func (s *Server) status() (map[string]any, error) {
 	s.mu.Lock()

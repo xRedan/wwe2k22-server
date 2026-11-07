@@ -51,6 +51,7 @@ type group struct {
 	Closed            bool
 	Active            time.Time
 	Reliable          *reliablePeer
+	Diag              relayDiag
 }
 type room struct {
 	ID, Owner, Revision uint64
@@ -71,6 +72,11 @@ type directory struct {
 	Publications map[uint64]*publication
 	LastScan     map[string]any
 	UDP          map[string]uint64
+	// notify receives diagnostic events while mu is held; it must not block or
+	// take mu. A nil notify disables relay events.
+	notify       func(map[string]any)
+	unknownNoted time.Time
+	unknownQuiet uint64
 }
 
 func newDirectory(e wire.Endpoint) *directory {
@@ -392,7 +398,7 @@ func (d *directory) response(op string, key uint64, f wire.Fields, now time.Time
 		if _, e = io.ReadFull(d.Random, token); e != nil {
 			return nil, e
 		}
-		g = &group{ID: gid, Session: key, Room: rid, Users: append([]uint64(nil), users...), Token: token, Active: now}
+		g = &group{ID: gid, Session: key, Room: rid, Users: append([]uint64(nil), users...), Token: token, Active: now, Diag: relayDiag{Created: now}}
 		if source != nil {
 			d.remove(source)
 		}

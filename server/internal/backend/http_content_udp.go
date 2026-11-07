@@ -167,12 +167,26 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 		if old := d.Addresses[from]; old != nil && old != g {
 			return out, nil
 		}
+		g.Diag.Opens++
+		if (g.Diag.Opens > 1 || g.Reliable != nil) && now.Sub(g.Diag.ReopenAt) >= relayNoteEvery {
+			g.Diag.ReopenAt = now
+			// A re-open keeps the relay sequence state; record it so a stream
+			// mismatch after a native reconnect is visible in the log.
+			fields := map[string]any{"opens": g.Diag.Opens, "was_closed": g.Closed, "address_changed": g.Address.IsValid() && g.Address != from}
+			if p := g.Reliable; p != nil {
+				fields["uplink_head"], fields["downlink_next"], fields["downlink_acked"] = p.receiveHead, p.next, p.acknowledged
+			}
+			d.note("relay_reopen", g, fields)
+		} else if g.Diag.Opens == 1 {
+			d.note("relay_open", g, nil)
+		}
 		if g.Address.IsValid() {
 			delete(d.Addresses, g.Address)
 		}
 		g.Address = from
 		g.Closed = false
 		g.Active = now
+		d.relaySeen(g, now)
 		d.Addresses[from] = g
 		d.UDP["opens"]++
 		var payload [12]byte
@@ -185,8 +199,11 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 	}
 	g := d.Addresses[from]
 	if g == nil {
+		// Includes a player whose NAT changed its public port mid-match.
+		d.relayUnknownSource(now)
 		return out, nil
 	}
+	d.relaySeen(g, now)
 	if f.Kind == 2 {
 		if f.Flags != 0 || len(f.Payload) != 8 {
 			return out, wire.ErrUDP
@@ -196,6 +213,8 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 			g.Address = netip.AddrPort{}
 			g.Closed = true
 			g.Active = now
+			g.Diag.Closes++
+			d.note("relay_close", g, map[string]any{"closes": g.Diag.Closes})
 		}
 		return out, nil
 	}
@@ -216,6 +235,7 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 		}
 	case 0x1000, 0x1800:
 	default:
+		d.UDP["unrouted_flags"]++
 		return out, nil
 	}
 	g.Active = now
@@ -250,6 +270,7 @@ func (d *directory) udpReplies(raw []byte, from netip.AddrPort, now time.Time, p
 	if f.Kind == 3 || f.Kind == 4 {
 		parts, handled, err := reliableParts(payload, g.ID)
 		if err != nil {
+			d.UDP["reliable_malformed"]++
 			return out[:0], err
 		}
 		if handled {

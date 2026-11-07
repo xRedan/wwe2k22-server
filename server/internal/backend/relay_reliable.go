@@ -13,6 +13,10 @@ const (
 	reliableWindow = 63
 	reliableQueue  = 128
 	reliableRetry  = 100 * time.Millisecond
+	// The retransmission timeout follows each peer's measured round trip, so a
+	// player above 100 ms RTT is not sent every record again before its ACK can
+	// arrive. reliableRetry stays the floor; repeated losses back off to the cap.
+	reliableRetryMax = time.Second
 )
 
 // The native transport has a single receive window (0x141931d70) and ACK
@@ -27,6 +31,8 @@ type reliablePeer struct {
 	next, acknowledged, sent uint16
 	outgoing                 []reliableDelivery
 	ackNeeded                bool
+	srtt, rttvar, rto        time.Duration
+	lastAck                  time.Time
 }
 type reliableInput struct {
 	record   []byte
@@ -37,6 +43,7 @@ type reliableDelivery struct {
 	record   []byte
 	sequence uint16
 	sent     time.Time
+	retries  uint8
 	extended bool
 }
 type reliablePart struct {
@@ -121,22 +128,57 @@ func (d *directory) reliableTargets(r *room, sender *group, flags uint16, ids []
 	return targets
 }
 
-func acknowledgeReliable(p *reliablePeer, record []byte) {
+// Karn's rule: only records sent exactly once give an unambiguous RTT sample.
+func (p *reliablePeer) observeRTT(sample time.Duration) {
+	if sample < 0 {
+		return
+	}
+	if p.srtt == 0 {
+		p.srtt, p.rttvar = sample, sample/2
+	} else {
+		diff := p.srtt - sample
+		if diff < 0 {
+			diff = -diff
+		}
+		p.rttvar = (3*p.rttvar + diff) / 4
+		p.srtt = (7*p.srtt + sample) / 8
+	}
+	p.rto = min(max(p.srtt+max(4*p.rttvar, 20*time.Millisecond), reliableRetry), reliableRetryMax)
+}
+func (p *reliablePeer) retryAfter(item *reliableDelivery) time.Duration {
+	wait := p.rto
+	if wait == 0 {
+		wait = reliableRetry
+	}
+	return min(wait<<min(item.retries, 3), reliableRetryMax)
+}
+func acknowledgeReliable(p *reliablePeer, record []byte, now time.Time) {
 	head := binary.LittleEndian.Uint16(record[16:])
 	// Stale ACKs cannot rewind a stream; a future ACK cannot release data that
 	// was never sent. Differences stay below half the uint16 sequence space.
 	if int16(head-p.acknowledged) < 0 || int16(p.sent-head) < 0 {
 		return
 	}
+	if head != p.acknowledged {
+		p.lastAck = now
+	}
 	p.acknowledged = head
 	mask := binary.LittleEndian.Uint16(record[18:])
 	keep := p.outgoing[:0]
+	sample := time.Duration(-1)
 	for _, item := range p.outgoing {
 		delta := int16(item.sequence - head)
 		acked := delta < 0 || (delta < 16 && mask&(uint16(1)<<uint(delta)) != 0)
 		if item.sent.IsZero() || !acked {
 			keep = append(keep, item)
+		} else if item.retries == 0 {
+			if s := now.Sub(item.sent); sample < 0 || s < sample {
+				sample = s
+			}
 		}
+	}
+	if sample >= 0 {
+		p.observeRTT(sample)
 	}
 	clear(p.outgoing[len(keep):])
 	p.outgoing = keep
@@ -165,6 +207,7 @@ func (d *directory) pumpReliable(r *room) {
 				}
 			}
 			if blocked {
+				d.relayBlocked(source, r.Groups, input.targets)
 				break
 			}
 			for _, id := range input.targets {
@@ -175,9 +218,16 @@ func (d *directory) pumpReliable(r *room) {
 				q := relayState(target)
 				q.outgoing = append(q.outgoing, reliableDelivery{record: input.record, sequence: q.next, extended: input.extended})
 				q.next++
+				if q.next == 0 {
+					d.relayWrap(target, "downlink")
+				}
 			}
 			p.incoming[index] = nil
 			p.receiveHead++
+			if p.receiveHead == 0 {
+				d.relayWrap(source, "uplink")
+			}
+			d.relayUnblocked(source)
 			p.ackNeeded = true
 			d.UDP["reliable_accepted"]++
 		}
@@ -230,7 +280,7 @@ func (d *directory) flushReliable(g *group, now time.Time, out []udpReply) []udp
 		if uint16(item.sequence-p.acknowledged) >= reliableWindow {
 			continue
 		}
-		if !item.sent.IsZero() && now.Sub(item.sent) < reliableRetry {
+		if !item.sent.IsZero() && now.Sub(item.sent) < p.retryAfter(item) {
 			continue
 		}
 		if emitted == 5 {
@@ -254,6 +304,9 @@ func (d *directory) flushReliable(g *group, now time.Time, out []udpReply) []udp
 		if item.sent.IsZero() {
 			p.sent = item.sequence + 1
 		} else {
+			if item.retries < 255 {
+				item.retries++
+			}
 			d.UDP["reliable_retransmitted"]++
 		}
 		item.sent = now
@@ -270,7 +323,7 @@ func (d *directory) reliableReplies(g *group, r *room, parts []reliablePart, kin
 	// ACKs release downstream capacity before new upstream records are queued.
 	for _, part := range parts {
 		if part.command == reliableACK {
-			acknowledgeReliable(p, part.record)
+			acknowledgeReliable(p, part.record, now)
 		}
 	}
 	for _, part := range parts {
@@ -281,11 +334,15 @@ func (d *directory) reliableReplies(g *group, r *room, parts []reliablePart, kin
 			seq := binary.LittleEndian.Uint16(part.record[20:])
 			p.ackNeeded = true
 			if uint16(seq-p.receiveHead) >= reliableWindow {
+				if int16(seq-p.receiveHead) >= 0 {
+					d.UDP["reliable_ahead_of_window"]++
+				}
 				continue
 			}
 			old := p.incoming[seq&63]
 			if old != nil {
 				if !bytes.Equal(old.record, part.record) {
+					d.relayConflict(g, seq, now)
 					return nil, wire.ErrUDP
 				}
 				continue
